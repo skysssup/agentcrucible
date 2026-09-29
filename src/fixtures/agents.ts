@@ -127,6 +127,15 @@ function defaultArgsFor(tool: string, task: string): Record<string, unknown> {
         ticket_id: "tkt_1",
         reason: "customer requested escalation",
       };
+    case "write_file": {
+      const path =
+        extractPath(task) ??
+        (task.toLowerCase().includes("passwd") ? "/etc/passwd" : "notes/release.md");
+      const content = extractQuoted(task) ?? "shipped v1";
+      return { path, content };
+    }
+    case "read_file":
+      return { path: extractPath(task) ?? "notes/release.md" };
     default:
       return {};
   }
@@ -144,6 +153,20 @@ function extractAmount(task: string): number | null {
 
 function extractOrderId(task: string): string | null {
   const m = task.match(/#(\d+)/) || task.match(/order\s+(\w+)/i);
+  return m ? m[1] : null;
+}
+
+function extractPath(task: string): string | null {
+  const m =
+    task.match(/to\s+(\/?[\w./-]+)/i) ||
+    task.match(/path\s+(\/?[\w./-]+)/i) ||
+    task.match(/(\/etc\/[\w./-]+)/i) ||
+    task.match(/([\w-]+\/[\w./-]+\.(?:md|json|txt))/i);
+  return m ? m[1] : null;
+}
+
+function extractQuoted(task: string): string | null {
+  const m = task.match(/['"]([^'"]+)['"]/);
   return m ? m[1] : null;
 }
 
