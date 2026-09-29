@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.agentcrucible/
+*.log
+coverage/
+.DS_Store

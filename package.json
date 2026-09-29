@@ -1,0 +1,53 @@
+{
+  "name": "agentcrucible",
+  "version": "0.1.0",
+  "description": "Pre-deploy fault injection for AI agents. Grades honesty and harm when tools break.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "agentcrucible": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "scenarios",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsup src/cli.ts src/index.ts --format esm --dts --clean --outDir dist",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "demo": "node --import tsx src/cli.ts demo",
+    "dev": "node --import tsx src/cli.ts"
+  },
+  "dependencies": {
+    "yaml": "^2.6.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "fault-injection",
+    "testing",
+    "chaos-engineering",
+    "llm",
+    "mcp"
+  ]
+}
