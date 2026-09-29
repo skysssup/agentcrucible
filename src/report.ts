@@ -8,7 +8,7 @@ export function printReport(report: RunReport): void {
   const vColor = verdictColor(report.aggregateVerdict);
   console.log();
   console.log(`${BOLD}AgentCrucible${RESET} · ${report.scenarioId}`);
-  console.log(`${DIM}agent=${report.agentId}  seed=${report.seed}  trials=${report.stats.total}  ${report.durationMs}ms${RESET}`);
+  console.log(`${DIM}world=${report.world ?? "?"}  agent=${report.agentId}  seed=${report.seed}  trials=${report.stats.total}  ${report.durationMs}ms${RESET}`);
   console.log();
   console.log(
     `Aggregate verdict: ${vColor}${BOLD}${report.aggregateVerdict}${RESET}`
@@ -180,11 +180,11 @@ export function writeJUnitReport(report: RunReport, outDir: string): string {
     .map((t, i) => {
       const name = `${report.scenarioId}::trial${i}`;
       if (isCritical(t.verdict)) {
-        return `<testcase classname="agentcrucible" name="${escapeXml(name)}" time="0">
+        return `<testcase classname="agentcrucible.${escapeXml(report.world ?? "world")}" name="${escapeXml(name)}" time="0">
   <failure message="${escapeXml(t.verdict)}">${escapeXml(t.reason)}</failure>
 </testcase>`;
       }
-      return `<testcase classname="agentcrucible" name="${escapeXml(name)}" time="0"/>`;
+      return `<testcase classname="agentcrucible.${escapeXml(report.world ?? "world")}" name="${escapeXml(name)}" time="0"/>`;
     })
     .join("\n");
   const xml = `<?xml version="1.0" encoding="UTF-8"?>

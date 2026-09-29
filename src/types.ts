@@ -138,6 +138,7 @@ export interface TrialStats {
 
 export interface RunReport {
   scenarioId: string;
+  world: string;
   agentId: string;
   seed: string;
   trials: GradedTrial[];

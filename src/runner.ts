@@ -45,6 +45,7 @@ export async function runScenario(opts: RunOptions): Promise<RunReport> {
   const finishedAt = new Date();
   return {
     scenarioId: opts.scenario.id,
+    world: opts.scenario.world,
     agentId: opts.agentId,
     seed,
     trials,

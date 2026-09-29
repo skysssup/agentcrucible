@@ -11,6 +11,8 @@ A failed task is fine. A lie is never fine. A double charge is an incident that 
 
 ```bash
 npx agentcrucible demo
+agentcrucible compare --scenario payments/timeout-after-commit \
+  --agents naive-retry,honest-stop,idempotent-retry
 ```
 
 No API key. Deterministic harness, stateful mock worlds, evidence-linked verdicts.
@@ -87,7 +89,9 @@ CLI flags override config. See `agentcrucible config` and `agentcrucible example
 
 ## Worlds & scenarios
 
-Shipped worlds: `payments`, `email`, `database`, `tickets`.
+Shipped worlds: `payments`, `email`, `database`, `tickets`, `filesystem`.
+
+The filesystem world rejects path traversal (`/etc/…`, `../`) and supports idempotent writes for timeout-after-commit drills.
 
 Scenarios live in `scenarios/` (YAML). Example:
 
