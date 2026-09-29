@@ -41,6 +41,7 @@ function ledgerLen(snap: Record<string, unknown>): number {
   if (Array.isArray(snap.ledger)) return snap.ledger.length;
   if (Array.isArray(snap.outbox)) return snap.outbox.length;
   if (Array.isArray(snap.rows)) return snap.rows.length;
+  if (Array.isArray(snap.tickets)) return snap.tickets.length;
   return 0;
 }
 

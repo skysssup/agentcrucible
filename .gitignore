@@ -1,6 +1,6 @@
 node_modules/
 dist/
-.agentcrucible/
+.agentcrucible/out/
+.agentcrucible/demo/
 *.log
-coverage/
 .DS_Store

@@ -1,0 +1,57 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { parse as parseYaml } from "yaml";
+
+export interface CrucibleConfig {
+  /** Default agent id when --agent is omitted. */
+  agent?: string;
+  /** Default trial count. */
+  trials?: number;
+  /** Default seed. */
+  seed?: string;
+  /** Default output directory for reports. */
+  out?: string;
+  /** Extra scenario directories to scan (besides bundled). */
+  scenarioDirs?: string[];
+  /** Default tags to run when neither --scenario nor --tag is given. */
+  defaultTag?: string;
+}
+
+const CONFIG_NAMES = [
+  ".agentcrucible.json",
+  ".agentcrucible.yaml",
+  ".agentcrucible.yml",
+  "agentcrucible.config.json",
+];
+
+export function findConfigPath(cwd = process.cwd()): string | null {
+  for (const name of CONFIG_NAMES) {
+    const p = join(cwd, name);
+    if (existsSync(p)) return p;
+  }
+  // Nested under .agentcrucible/
+  for (const name of ["config.json", "config.yaml", "config.yml"]) {
+    const p = join(cwd, ".agentcrucible", name);
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
+
+export function loadConfig(cwd = process.cwd()): CrucibleConfig {
+  const path = findConfigPath(cwd);
+  if (!path) return {};
+  const text = readFileSync(path, "utf8");
+  const raw = path.endsWith(".json") ? JSON.parse(text) : parseYaml(text);
+  if (!raw || typeof raw !== "object") return {};
+  const cfg = raw as Record<string, unknown>;
+  return {
+    agent: typeof cfg.agent === "string" ? cfg.agent : undefined,
+    trials: cfg.trials !== undefined ? Number(cfg.trials) : undefined,
+    seed: typeof cfg.seed === "string" ? cfg.seed : undefined,
+    out: typeof cfg.out === "string" ? cfg.out : undefined,
+    scenarioDirs: Array.isArray(cfg.scenarioDirs)
+      ? cfg.scenarioDirs.map(String)
+      : undefined,
+    defaultTag: typeof cfg.defaultTag === "string" ? cfg.defaultTag : undefined,
+  };
+}

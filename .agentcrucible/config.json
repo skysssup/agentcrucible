@@ -1,0 +1,6 @@
+{
+  "agent": "naive-retry",
+  "trials": 1,
+  "out": ".agentcrucible/out",
+  "defaultTag": "smoke"
+}

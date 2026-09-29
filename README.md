@@ -15,14 +15,21 @@ npx agentcrucible demo
 
 No API key. Deterministic harness, stateful mock worlds, evidence-linked verdicts.
 
-## Why this exists
+## Install
 
-| Tool class | What it tells you |
-|---|---|
-| Observability (Langfuse, LangSmith) | What happened after the fact |
-| Eval frameworks (promptfoo, DeepEval) | Whether the answer looked good |
-| Infra chaos (Gremlin, Chaos Mesh) | How services behave under network stress |
-| **AgentCrucible** | What your agent does when tools break — and whether it's honest |
+```bash
+npm install
+npm run build
+npm test
+```
+
+Global / linked CLI:
+
+```bash
+npm link
+agentcrucible version
+agentcrucible examples
+```
 
 ## Verdict matrix
 
@@ -34,7 +41,6 @@ No API key. Deterministic harness, stateful mock worlds, evidence-linked verdict
 ## Quick start
 
 ```bash
-npm install
 npm run build
 node dist/cli.js demo
 node dist/cli.js list
@@ -44,16 +50,32 @@ node dist/cli.js run --tag smoke --agent honest-stop --out .agentcrucible/out
 
 Exit code `2` means a critical verdict (`HARMFUL_ACTION` or `SILENT_FAILURE`) — CI-friendly.
 
+## Config file
+
+Optional `.agentcrucible.json` (or `.agentcrucible/config.json`):
+
+```json
+{
+  "agent": "naive-retry",
+  "trials": 1,
+  "out": ".agentcrucible/out",
+  "defaultTag": "smoke",
+  "scenarioDirs": ["./my-scenarios"]
+}
+```
+
+CLI flags override config. See `agentcrucible config` and `agentcrucible examples`.
+
 ## What makes it different
 
-- **Policy engine** — scenarios declare `requireIdempotency`, `forbidBlindRetry`, `mustDiscloseUncertainty`, `maxMutatingCalls`. Violations are findings with evidence, not afterthoughts.
-- **Evidence-linked verdicts** — every finding cites tool-call IDs and before/after world diffs.
-- **Multi-trial flaky detection** — `--trials N` with Wilson-score critical-rate lower bounds.
-- **Property-based fault targeting** — `--fuzz-call 1-3` fuzzes which call number fails, deterministically from `--seed`.
-- **Deterministic harness-first** — scripted agents + in-process worlds. CI runs with zero network and zero API keys.
-- **Reports** — terminal timeline, `report.json`, interactive `report.html`, `junit.xml`.
+- **Policy engine** — `requireIdempotency`, `forbidBlindRetry`, `mustDiscloseUncertainty`, `forbidFalseSuccess`, `maxMutatingCalls`
+- **Evidence-linked verdicts** — findings cite tool-call IDs and before/after world diffs
+- **Multi-trial flaky detection** — `--trials N` with Wilson-score critical-rate lower bounds
+- **Property-based fault targeting** — `--fuzz-call 1-3`
+- **Deterministic harness-first** — scripted agents + in-process worlds; zero network / API keys
+- **Reports** — terminal timeline, `report.json`, interactive `report.html`, `junit.xml`
 
-## Scripted agents (for demos & CI)
+## Scripted agents
 
 | Agent | Behavior |
 |---|---|
@@ -63,13 +85,11 @@ Exit code `2` means a critical verdict (`HARMFUL_ACTION` or `SILENT_FAILURE`) �
 | `liar` | Claims success with a fabricated amount regardless of tool results |
 | `gullible-reader` | Trusts stale/wrong read results as fact |
 
-Bring your own agent by implementing the `ScriptedAgent` interface and calling `runHarness` / `runScenario` from the library API.
-
 ## Worlds & scenarios
 
-Shipped worlds: `payments`, `email`, `database`.
+Shipped worlds: `payments`, `email`, `database`, `tickets`.
 
-Shipped scenarios live in `scenarios/` (YAML). Example:
+Scenarios live in `scenarios/` (YAML). Example:
 
 ```yaml
 id: payments/timeout-after-commit
@@ -88,6 +108,14 @@ policies:
 
 Fault kinds: `timeout_after_commit`, `timeout`, `omission`, `silent_wrong_data`, `rate_limit_429`, `malformed_response`, `retry_storm`, `auth_expiry`, `stale_cache`, `schema_drift`.
 
+### Authoring a scenario
+
+1. Pick a world (`agentcrucible worlds`)
+2. Write YAML under `scenarios/<world>/`
+3. Declare faults + policies covering the behavior you care about
+4. Run: `agentcrucible run --scenario <id> --agent naive-retry`
+5. Optionally add the dir via `scenarioDirs` in config
+
 ## Library API
 
 ```ts
@@ -101,13 +129,6 @@ const report = await runScenario({
   seed: "ci",
 });
 console.log(report.aggregateVerdict, report.stats);
-```
-
-## Development
-
-```bash
-npm test
-npm run build
 ```
 
 ## License

@@ -1,6 +1,6 @@
 {
   "name": "agentcrucible",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Pre-deploy fault injection for AI agents. Grades honesty and harm when tools break.",
   "license": "MIT",
   "type": "module",
@@ -48,6 +48,17 @@
     "testing",
     "chaos-engineering",
     "llm",
-    "mcp"
-  ]
+    "mcp",
+    "eval",
+    "honesty",
+    "idempotency"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/skysssup/agentcrucible.git"
+  },
+  "homepage": "https://github.com/skysssup/agentcrucible",
+  "bugs": {
+    "url": "https://github.com/skysssup/agentcrucible/issues"
+  }
 }

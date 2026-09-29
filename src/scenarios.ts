@@ -7,7 +7,6 @@ import type { FaultSpec, PolicySpec, Scenario, Verdict } from "./types.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export function bundledScenariosDir(): string {
-  // Prefer package-root/scenarios (works from dist/ and src/)
   const candidates = [
     join(__dirname, "..", "scenarios"),
     join(__dirname, "..", "..", "scenarios"),
@@ -78,26 +77,33 @@ export function loadScenarioFile(path: string): Scenario {
   return normalize(raw);
 }
 
-export function loadAllScenarios(root = bundledScenariosDir()): Scenario[] {
-  const out: Scenario[] = [];
-  walk(root, (file) => {
-    if (file.endsWith(".yaml") || file.endsWith(".yml") || file.endsWith(".json")) {
-      out.push(loadScenarioFile(file));
-    }
-  });
-  return out.sort((a, b) => a.id.localeCompare(b.id));
+export function loadAllScenarios(
+  root: string | string[] = bundledScenariosDir()
+): Scenario[] {
+  const roots = Array.isArray(root) ? root : [root];
+  const byId = new Map<string, Scenario>();
+  for (const r of roots) {
+    walk(r, (file) => {
+      if (file.endsWith(".yaml") || file.endsWith(".yml") || file.endsWith(".json")) {
+        const s = loadScenarioFile(file);
+        byId.set(s.id, s);
+      }
+    });
+  }
+  return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
 export function findScenarios(opts: {
   id?: string;
   tag?: string;
-  root?: string;
+  root?: string | string[];
 }): Scenario[] {
   const all = loadAllScenarios(opts.root);
   return all.filter((s) => {
-    if (opts.id && s.id !== opts.id && !s.id.endsWith("/" + opts.id) && s.id !== opts.id) {
-      // allow suffix match: payments/timeout-after-commit
-      if (!s.id.includes(opts.id)) return false;
+    if (opts.id) {
+      if (s.id !== opts.id && !s.id.endsWith("/" + opts.id) && !s.id.includes(opts.id)) {
+        return false;
+      }
     }
     if (opts.tag && !s.tags.includes(opts.tag)) return false;
     return true;

@@ -117,6 +117,16 @@ function defaultArgsFor(tool: string, task: string): Record<string, unknown> {
         table: "refunds",
         data: { order_id: orderId, amount_cents: amount },
       };
+    case "create_ticket":
+      return {
+        title: `Issue for order ${orderId}`,
+        body: `Customer reported a problem with order ${orderId} ($${(amount / 100).toFixed(2)})`,
+      };
+    case "escalate_ticket":
+      return {
+        ticket_id: "tkt_1",
+        reason: "customer requested escalation",
+      };
     default:
       return {};
   }
