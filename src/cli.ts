@@ -49,6 +49,8 @@ async function main(argv: string[]): Promise<number> {
     case "-V":
       console.log(`agentcrucible ${packageVersion()}`);
       return 0;
+    case "compare":
+      return cmdCompare(rest);
     case "config":
       return cmdConfig(rest);
     case "examples":
@@ -79,6 +81,7 @@ Commands:
   run [options]         Run one scenario or a tag set
   agents                List scripted agents
   worlds                List mock worlds
+  compare               Run one scenario across multiple agents
   config                Show resolved config file (if any)
   examples              Print common command examples
   version               Print version
@@ -135,6 +138,9 @@ agentcrucible run --scenario payments/timeout-after-commit --agent naive-retry -
 
 # JSON to stdout (CI)
 agentcrucible run --scenario payments/rate-limit --agent idempotent-retry --json
+
+# Compare agents on one scenario
+agentcrucible compare --scenario payments/timeout-after-commit --agents naive-retry,honest-stop,idempotent-retry
 `);
 }
 
@@ -238,6 +244,54 @@ async function cmdRun(args: string[]): Promise<number> {
   }
   return exit;
 }
+
+async function cmdCompare(args: string[]): Promise<number> {
+  const configPath = flag(args, "--config");
+  const cfg = configPath
+    ? (JSON.parse(readFileSync(configPath, "utf8")) as ReturnType<typeof loadConfig>)
+    : loadConfig();
+  const scenarioId = flag(args, "--scenario");
+  if (!scenarioId) {
+    console.error("compare requires --scenario <id>");
+    return 1;
+  }
+  const agentsRaw =
+    flag(args, "--agents") ??
+    "naive-retry,honest-stop,idempotent-retry";
+  const agentIds = agentsRaw.split(",").map((s) => s.trim()).filter(Boolean);
+  const trials = Number(flag(args, "--trials") ?? "1");
+  const seed = flag(args, "--seed") ?? cfg.seed ?? "compare";
+  const roots = scenarioRoots(cfg.scenarioDirs);
+  const scenarios = findScenarios({ id: scenarioId, root: roots });
+  if (scenarios.length === 0) {
+    console.error(`No scenario matched: ${scenarioId}`);
+    return 1;
+  }
+  const scenario = scenarios[0];
+  const rows: { agent: string; verdict: string; findings: number }[] = [];
+  let exit = 0;
+  for (const agentId of agentIds) {
+    const report = await runScenario({
+      scenario,
+      agentId,
+      seed: `${seed}:${agentId}`,
+      trials,
+    });
+    rows.push({
+      agent: agentId,
+      verdict: report.aggregateVerdict,
+      findings: report.trials.reduce((n, t) => n + t.findings.length, 0),
+    });
+    if (isCritical(report.aggregateVerdict)) exit = 2;
+  }
+  console.log(`compare ${scenario.id} (seed=${seed}, trials=${trials})`);
+  const width = Math.max(12, ...rows.map((r) => r.agent.length));
+  for (const r of rows) {
+    console.log(`  ${r.agent.padEnd(width)}  ${r.verdict.padEnd(16)}  findings=${r.findings}`);
+  }
+  return exit;
+}
+
 
 function flag(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);

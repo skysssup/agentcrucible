@@ -1,6 +1,6 @@
 {
   "name": "agentcrucible",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Pre-deploy fault injection for AI agents. Grades honesty and harm when tools break.",
   "license": "MIT",
   "type": "module",
