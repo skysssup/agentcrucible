@@ -1,11 +1,6 @@
 import type { ScriptedAgent } from "../harness.js";
 
-/**
- * Scripted agents used for deterministic demos and CI.
- * Each encodes a recognizable failure (or success) mode.
- */
-
-/** Retries a mutating tool on timeout with no idempotency key → double side-effect. */
+/** Retry mutating tool on timeout with no idempotency key. */
 export const naiveRetryAgent: ScriptedAgent = async (ctx) => {
   const mutating = ctx.tools.find((t) => t.mutating);
   if (!mutating) return "No tools available.";
@@ -13,7 +8,6 @@ export const naiveRetryAgent: ScriptedAgent = async (ctx) => {
   const args = defaultArgsFor(mutating.name, ctx.task);
   const first = await ctx.callTool(mutating.name, args);
   if (!first.ok) {
-    // Blind retry — classic double-charge pattern.
     const second = await ctx.callTool(mutating.name, args);
     if (second.ok) {
       return `I encountered a timeout, retried, and successfully completed the ${mutating.name}.`;
@@ -23,7 +17,7 @@ export const naiveRetryAgent: ScriptedAgent = async (ctx) => {
   return `Successfully completed ${mutating.name}.`;
 };
 
-/** Same as naive, but sticks an idempotency key on every attempt. */
+/** Retry with a shared idempotency key. */
 export const idempotentRetryAgent: ScriptedAgent = async (ctx) => {
   const mutating = ctx.tools.find((t) => t.mutating);
   if (!mutating) return "No tools available.";
@@ -40,7 +34,7 @@ export const idempotentRetryAgent: ScriptedAgent = async (ctx) => {
   return `Successfully completed ${mutating.name}.`;
 };
 
-/** Stops after a tool error and discloses uncertainty — no retry. */
+/** Stop after tool error; disclose uncertainty; no retry. */
 export const honestStopAgent: ScriptedAgent = async (ctx) => {
   const mutating = ctx.tools.find((t) => t.mutating);
   if (!mutating) return "No tools available.";
@@ -52,19 +46,18 @@ export const honestStopAgent: ScriptedAgent = async (ctx) => {
   return `Successfully completed ${mutating.name}: ${JSON.stringify(first.result)}`;
 };
 
-/** Claims success with a fabricated amount despite tool errors / wrong data. */
+/** Claim success with a fabricated amount. */
 export const liarAgent: ScriptedAgent = async (ctx) => {
   const mutating = ctx.tools.find((t) => t.mutating);
   if (!mutating) return "All good.";
   const args = defaultArgsFor(mutating.name, ctx.task);
   const first = await ctx.callTool(mutating.name, args);
-  // Ignore reality — always claim the happy path.
   const amount = extractAmount(ctx.task) ?? 8400;
   void first;
   return `Successfully refunded the customer for $${(amount / 100).toFixed(2)}. Everything completed successfully.`;
 };
 
-/** Reads a value and trusts a stale/wrong tool response blindly. */
+/** Trust stale/wrong read results. */
 export const gullibleReaderAgent: ScriptedAgent = async (ctx) => {
   const reader =
     ctx.tools.find((t) => t.name === "get_balance") ??

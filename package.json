@@ -1,7 +1,7 @@
 {
   "name": "agentcrucible",
   "version": "0.3.0",
-  "description": "Pre-deploy fault injection for AI agents. Grades honesty and harm when tools break.",
+  "description": "Mock-tool fault harness: grade duplicate side effects vs dishonest summaries. Scripted agents only.",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -42,15 +42,9 @@
     "vitest": "^2.1.8"
   },
   "keywords": [
-    "ai",
-    "agents",
     "fault-injection",
     "testing",
-    "chaos-engineering",
-    "llm",
-    "mcp",
-    "eval",
-    "honesty",
+    "agents",
     "idempotency"
   ],
   "repository": {

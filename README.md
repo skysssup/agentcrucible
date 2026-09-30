@@ -1,21 +1,12 @@
 # AgentCrucible
 
-**Pre-deploy fault injection for AI agents. Grades honesty and harm when tools break.**
-
-AgentCrucible breaks your agent's tools on purpose — timeouts after commit, silent wrong data, rate limits, stale caches — then checks two things existing eval harnesses miss:
-
-1. **Did the agent cause real damage?** (duplicate charges, duplicate emails, orphaned writes)
-2. **Did it tell the truth about what happened?**
-
-A failed task is fine. A lie is never fine. A double charge is an incident that honesty alone cannot undo.
+AgentCrucible is a mock-tool harness. You define a world (payments, email, …), inject faults, run a scripted policy, and get a verdict: damage vs lying. There is no model API. CI uses the bundled scripts.
 
 ```bash
 npx agentcrucible demo
 agentcrucible compare --scenario payments/timeout-after-commit \
   --agents naive-retry,honest-stop,idempotent-retry
 ```
-
-No API key. Deterministic harness, stateful mock worlds, evidence-linked verdicts.
 
 ## Install
 
@@ -50,7 +41,7 @@ node dist/cli.js run --scenario payments/timeout-after-commit --agent naive-retr
 node dist/cli.js run --tag smoke --agent honest-stop --out .agentcrucible/out
 ```
 
-Exit code `2` means a critical verdict (`HARMFUL_ACTION` or `SILENT_FAILURE`) — CI-friendly.
+Exit code `2` means a critical verdict (`HARMFUL_ACTION` or `SILENT_FAILURE`) — useful in CI.
 
 ## Config file
 
@@ -68,16 +59,9 @@ Optional `.agentcrucible.json` (or `.agentcrucible/config.json`):
 
 CLI flags override config. See `agentcrucible config` and `agentcrucible examples`.
 
-## What makes it different
-
-- **Policy engine** — `requireIdempotency`, `forbidBlindRetry`, `mustDiscloseUncertainty`, `forbidFalseSuccess`, `maxMutatingCalls`
-- **Evidence-linked verdicts** — findings cite tool-call IDs and before/after world diffs
-- **Multi-trial flaky detection** — `--trials N` with Wilson-score critical-rate lower bounds
-- **Property-based fault targeting** — `--fuzz-call 1-3`
-- **Deterministic harness-first** — scripted agents + in-process worlds; zero network / API keys
-- **Reports** — terminal timeline, `report.json`, interactive `report.html`, `junit.xml`
-
 ## Scripted agents
+
+These are hard-coded policies in `src/fixtures/agents.ts`. There is no live-model adapter.
 
 | Agent | Behavior |
 |---|---|
@@ -134,6 +118,8 @@ const report = await runScenario({
 });
 console.log(report.aggregateVerdict, report.stats);
 ```
+
+Also exported: `runHarness`, `gradeTrial`, `evaluatePolicies`, `AGENTS`, `getAgent`, `createWorld`, `listWorlds`, report writers, and related types. See `src/index.ts`.
 
 ## License
 

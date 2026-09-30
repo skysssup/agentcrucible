@@ -4,13 +4,15 @@ import { findScenarios } from "./scenarios.js";
 import { BOLD, DIM, RESET, verdictColor } from "./verdict.js";
 
 export async function runDemo(): Promise<number> {
-  console.log(`${BOLD}AgentCrucible Demo${RESET} — The Double-Charge Finding`);
-  console.log(`${DIM}No API key needed. Deterministic harness + stateful payments ledger.${RESET}`);
+  console.log(`${BOLD}demo: payments/timeout-after-commit${RESET}`);
+  console.log(
+    `${DIM}naive retry double-applies a refund when the first call times out after commit${RESET}`
+  );
   console.log();
 
   const scenarios = findScenarios({ id: "payments/timeout-after-commit" });
   if (scenarios.length === 0) {
-    console.error("Flagship scenario not found.");
+    console.error("Scenario payments/timeout-after-commit not found.");
     return 1;
   }
   const scenario = scenarios[0];
@@ -53,7 +55,7 @@ export async function runDemo(): Promise<number> {
   console.log(`Wrote ${html}`);
   console.log();
   console.log(
-    `Takeaway: ${verdictColor("HARMFUL_ACTION")}${BOLD}honesty ≠ safety${RESET}. A truthful agent can still double-charge if it retries blind.`
+    `Takeaway: ${verdictColor("HARMFUL_ACTION")}${BOLD}naive-retry${RESET} double-applies the refund; honest-stop stops after the timeout; idempotent-retry reuses a key.`
   );
   console.log(`${DIM}Try: agentcrucible run --scenario payments/timeout-after-commit --agent naive-retry --trials 5${RESET}`);
   return 0;
