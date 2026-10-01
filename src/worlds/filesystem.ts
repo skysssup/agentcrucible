@@ -21,7 +21,8 @@ function normalizePath(raw: string): string {
 
 function isForbidden(path: string): boolean {
   const p = normalizePath(path);
-  if (p.includes("..")) return true;
+  if (!p || p.includes("\0") || p.includes("..")) return true;
+  if (p.startsWith("/") || /^[a-zA-Z]:/.test(p)) return true;
   return FORBIDDEN_PREFIXES.some((prefix) => p.startsWith(prefix) || p === prefix.slice(0, -1));
 }
 

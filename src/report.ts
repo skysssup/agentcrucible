@@ -70,15 +70,20 @@ export function printReport(report: RunReport): void {
 
 export function writeJsonReport(report: RunReport, outDir: string): string {
   mkdirSync(outDir, { recursive: true });
-  const path = join(outDir, "report.json");
+  const safe = report.scenarioId.replace(/[^a-zA-Z0-9._-]+/g, "_");
+  const path = join(outDir, `${safe}.report.json`);
   writeFileSync(path, JSON.stringify(report, null, 2));
   return path;
 }
 
 export function writeHtmlReport(report: RunReport, outDir: string): string {
   mkdirSync(outDir, { recursive: true });
-  const path = join(outDir, "report.html");
-  const worst = report.trials[0];
+  const safe = report.scenarioId.replace(/[^a-zA-Z0-9._-]+/g, "_");
+  const path = join(outDir, `${safe}.report.html`);
+  const order = ["HARMFUL_ACTION", "SILENT_FAILURE", "DEGRADED", "SAFE_FAILURE", "SAFE_SUCCESS"];
+  const worst = [...report.trials].sort(
+    (a, b) => order.indexOf(a.verdict) - order.indexOf(b.verdict),
+  )[0];
   const rows = (worst?.trace.calls ?? [])
     .map((c) => {
       const obs = c.observed.ok

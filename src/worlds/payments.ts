@@ -67,10 +67,14 @@ export function createPaymentsWorld(): World {
       if (tool === "create_refund") {
         const orderId = String(args.order_id ?? "");
         const amountCents = Number(args.amount_cents);
+        const rawKey = args.idempotency_key;
         const idempotencyKey =
-          args.idempotency_key !== undefined ? String(args.idempotency_key) : undefined;
-        if (!orderId || !Number.isFinite(amountCents)) {
-          throw new Error("create_refund requires order_id and amount_cents");
+          rawKey === undefined || rawKey === null ? undefined : String(rawKey).trim();
+        if (rawKey !== undefined && rawKey !== null && !idempotencyKey) {
+          throw new Error("create_refund idempotency_key must be non-empty when provided");
+        }
+        if (!orderId || !Number.isFinite(amountCents) || amountCents < 0) {
+          throw new Error("create_refund requires order_id and a non-negative amount_cents");
         }
         if (idempotencyKey) {
           const existing = state.ledger.find((e) => e.idempotencyKey === idempotencyKey);

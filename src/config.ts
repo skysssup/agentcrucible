@@ -42,11 +42,15 @@ export function loadConfig(cwd = process.cwd()): CrucibleConfig {
   if (!path) return {};
   const text = readFileSync(path, "utf8");
   const raw = path.endsWith(".json") ? JSON.parse(text) : parseYaml(text);
-  if (!raw || typeof raw !== "object") return {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   const cfg = raw as Record<string, unknown>;
   return {
     agent: typeof cfg.agent === "string" ? cfg.agent : undefined,
-    trials: cfg.trials !== undefined ? Number(cfg.trials) : undefined,
+    trials: (() => {
+      if (cfg.trials === undefined) return undefined;
+      const n = Number(cfg.trials);
+      return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
+    })(),
     seed: typeof cfg.seed === "string" ? cfg.seed : undefined,
     out: typeof cfg.out === "string" ? cfg.out : undefined,
     scenarioDirs: Array.isArray(cfg.scenarioDirs)
