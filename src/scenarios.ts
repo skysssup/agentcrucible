@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, existsSync, realpathSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
@@ -38,6 +38,31 @@ interface RawScenario {
 }
 
 function normalize(raw: RawScenario): Scenario {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Scenario must be an object');
+  for (const key of ['id', 'world', 'description', 'task'] as const) {
+    if (typeof raw[key] !== 'string' || !raw[key].trim()) throw new Error(`Invalid scenario ${key}`);
+  }
+  if (!['payments', 'email', 'database', 'filesystem', 'tickets'].includes(raw.world)) throw new Error('Unknown scenario world');
+  if (raw.version !== undefined && raw.version !== 1) throw new Error('Unsupported scenario version');
+  if (raw.tags !== undefined && (!Array.isArray(raw.tags) || !raw.tags.every(value => typeof value === 'string'))) throw new Error('Scenario tags must be string[]');
+  if (raw.policies !== undefined && (!raw.policies || typeof raw.policies !== 'object' || Array.isArray(raw.policies))) throw new Error('Scenario policies must be an object');
+  for (const key of ['requireIdempotency', 'mustDiscloseUncertainty', 'forbidFalseSuccess', 'forbidBlindRetry'] as const) {
+    if (raw.policies?.[key] !== undefined && typeof raw.policies[key] !== 'boolean') throw new Error(`Policy ${key} must be boolean`);
+  }
+  const budget = raw.policies?.maxMutatingCalls;
+  if (budget !== undefined && (!Number.isSafeInteger(budget) || budget < 0)) throw new Error('Invalid mutation budget');
+  if (raw.faults !== undefined && !Array.isArray(raw.faults)) throw new Error('Scenario faults must be an array');
+  const kinds = ['timeout_after_commit', 'timeout', 'omission', 'silent_wrong_data', 'rate_limit_429', 'malformed_response', 'retry_storm', 'auth_expiry', 'stale_cache', 'schema_drift'];
+  for (const fault of raw.faults ?? []) {
+    if (!fault || typeof fault !== 'object' || !kinds.includes(fault.kind) || typeof fault.target !== 'string' || !fault.target) throw new Error('Invalid fault specification');
+    if (fault.on_call !== undefined && (!Number.isSafeInteger(fault.on_call) || fault.on_call < 1)) throw new Error('Invalid fault on_call');
+    const range = fault.on_call_range;
+    if (range !== undefined && (!Array.isArray(range) || range.length !== 2 || !range.every(value => Number.isSafeInteger(value) && value > 0) || range[0] > range[1])) throw new Error('Invalid fault on_call_range');
+    if (range && fault.on_call !== undefined) throw new Error('Specify on_call or on_call_range, not both');
+    if (fault.probability !== undefined && (typeof fault.probability !== 'number' || !Number.isFinite(fault.probability) || fault.probability < 0 || fault.probability > 1)) throw new Error('Invalid fault probability');
+    if (fault.params !== undefined && (!fault.params || typeof fault.params !== 'object' || Array.isArray(fault.params))) throw new Error('Fault params must be an object');
+    if (fault.kind === 'silent_wrong_data' && fault.params?.delta !== undefined && (typeof fault.params.delta !== 'number' || !Number.isFinite(fault.params.delta))) throw new Error('Fault delta must be finite');
+  }
   const policies: PolicySpec = {
     requireIdempotency: Boolean(raw.policies?.requireIdempotency),
     maxMutatingCalls:
@@ -110,12 +135,15 @@ export function findScenarios(opts: {
   });
 }
 
-function walk(dir: string, visit: (file: string) => void): void {
+function walk(dir: string, visit: (file: string) => void, visited = new Set<string>()): void {
   if (!existsSync(dir)) return;
+  const real = realpathSync(dir);
+  if (visited.has(real)) return;
+  visited.add(real);
   for (const name of readdirSync(dir)) {
     const p = join(dir, name);
     const st = statSync(p);
-    if (st.isDirectory()) walk(p, visit);
+    if (st.isDirectory()) walk(p, visit, visited);
     else visit(p);
   }
 }

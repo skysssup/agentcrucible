@@ -39,7 +39,7 @@ export interface HarnessOptions {
 export async function runHarness(opts: HarnessOptions): Promise<TrialTrace> {
   const { world, faults, seed, trialIndex } = opts;
   world.reset();
-  const worldBefore = world.snapshot();
+  const worldBefore = structuredClone(world.snapshot());
   const calls: ToolCallRecord[] = [];
   const messages: AgentMessage[] = [
     { role: "user", content: opts.task },
@@ -49,13 +49,19 @@ export async function runHarness(opts: HarnessOptions): Promise<TrialTrace> {
 
   const callTool: AgentContext["callTool"] = async (name, args) => {
     const tool = world.tools.find((t) => t.name === name);
-    if (!tool) {
-      return { ok: false, error: `unknown tool: ${name}`, code: "ENOTOOL" };
-    }
     const callIndex = (callCounts.get(name) ?? 0) + 1;
     callCounts.set(name, callIndex);
     seq += 1;
     const id = `call_${seq}`;
+    args = structuredClone(args);
+    if (!tool) {
+      const observed = { ok: false as const, error: `unknown tool: ${name}`, code: 'ENOTOOL' };
+      calls.push({ id, tool: name, args: structuredClone(args), callIndex, seq, observed, committed: false, worldSnapshotAfter: structuredClone(world.snapshot()) });
+      messages.push({ role: 'assistant', content: `tool_call ${name}(${JSON.stringify(args)})` });
+      messages.push({ role: 'system', content: `tool_error ${observed.error}` });
+      return { ...observed };
+    }
+
 
     // Peek which fault would apply to decide pre-commit vs post-commit.
     const peek = decideFault(faults, name, callIndex, seed, trialIndex, null);
@@ -67,13 +73,13 @@ export async function runHarness(opts: HarnessOptions): Promise<TrialTrace> {
       const record: ToolCallRecord = {
         id,
         tool: name,
-        args: { ...args },
+        args: structuredClone(args),
         callIndex,
         seq,
-        observed: observation,
+        observed: structuredClone(observation),
         committed: c,
         faultApplied: peek.kind,
-        worldSnapshotAfter: world.snapshot(),
+        worldSnapshotAfter: structuredClone(world.snapshot()),
       };
       calls.push(record);
       messages.push({
@@ -87,13 +93,13 @@ export async function runHarness(opts: HarnessOptions): Promise<TrialTrace> {
           : `tool_error ${observation.error}`,
       });
       return observation.ok
-        ? { ok: true, result: observation.result }
+        ? { ok: true, result: structuredClone(observation.result) }
         : { ok: false, error: observation.error, code: observation.code };
     }
 
     // Invoke world (commit), then maybe mask/mutate.
     try {
-      committedResult = world.invoke(name, args);
+      committedResult = structuredClone(world.invoke(name, structuredClone(args)));
       committed = true;
     } catch (err) {
       const observation = {
@@ -104,14 +110,16 @@ export async function runHarness(opts: HarnessOptions): Promise<TrialTrace> {
       calls.push({
         id,
         tool: name,
-        args: { ...args },
+        args: structuredClone(args),
         callIndex,
         seq,
-        observed: observation,
+        observed: structuredClone(observation),
         committed: false,
-        worldSnapshotAfter: world.snapshot(),
+        worldSnapshotAfter: structuredClone(world.snapshot()),
       });
-      return observation;
+      messages.push({ role: 'assistant', content: `tool_call ${name}(${JSON.stringify(args)})` });
+      messages.push({ role: 'system', content: `tool_error ${observation.error}` });
+      return { ...observation };
     }
 
     const decision = decideFault(faults, name, callIndex, seed, trialIndex, committedResult);
@@ -123,14 +131,14 @@ export async function runHarness(opts: HarnessOptions): Promise<TrialTrace> {
     const record: ToolCallRecord = {
       id,
       tool: name,
-      args: { ...args },
+      args: structuredClone(args),
       callIndex,
       seq,
-      observed: observation,
+      observed: structuredClone(observation),
       committed: committed && stillCommitted,
       committedResult,
       faultApplied: decision.kind,
-      worldSnapshotAfter: world.snapshot(),
+      worldSnapshotAfter: structuredClone(world.snapshot()),
     };
     // For timeout_after_commit, observationFromDecision sets committed true
     if (decision.kind === "timeout_after_commit") {
@@ -148,7 +156,7 @@ export async function runHarness(opts: HarnessOptions): Promise<TrialTrace> {
         : `tool_error ${observation.error}`,
     });
     return observation.ok
-      ? { ok: true, result: observation.result }
+      ? { ok: true, result: structuredClone(observation.result) }
       : { ok: false, error: observation.error, code: observation.code };
   };
 
@@ -160,7 +168,7 @@ export async function runHarness(opts: HarnessOptions): Promise<TrialTrace> {
       mutating: t.mutating,
     })),
     callTool,
-    history: messages,
+    get history() { return structuredClone(messages); },
   };
 
   const finalAnswer = await opts.agent(ctx);
@@ -175,7 +183,7 @@ export async function runHarness(opts: HarnessOptions): Promise<TrialTrace> {
     calls,
     finalAnswer,
     worldBefore,
-    worldAfter: world.snapshot(),
+    worldAfter: structuredClone(world.snapshot()),
     agentId: opts.agentId,
   };
 }

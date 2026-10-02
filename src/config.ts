@@ -45,15 +45,17 @@ export function parseConfigText(text: string, pathHint = ""): CrucibleConfig {
       : lower.endsWith(".json") || text.trimStart().startsWith("{")
         ? JSON.parse(text)
         : parseYaml(text);
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  if (raw == null && !text.trim()) return {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error('Config must be an object');
   const cfg = raw as Record<string, unknown>;
+  for (const key of ['agent', 'seed', 'out', 'defaultTag']) {
+    if (cfg[key] !== undefined && typeof cfg[key] !== 'string') throw new Error(`Invalid config ${key}`);
+  }
+  if (cfg.trials !== undefined && (typeof cfg.trials !== 'number' || !Number.isSafeInteger(cfg.trials) || cfg.trials < 1)) throw new Error('Invalid config trials: expected a positive safe integer');
+  if (cfg.scenarioDirs !== undefined && (!Array.isArray(cfg.scenarioDirs) || !cfg.scenarioDirs.every(value => typeof value === 'string'))) throw new Error('scenarioDirs must be string[]');
   return {
     agent: typeof cfg.agent === "string" ? cfg.agent : undefined,
-    trials: (() => {
-      if (cfg.trials === undefined) return undefined;
-      const n = Number(cfg.trials);
-      return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
-    })(),
+    trials: cfg.trials as number | undefined,
     seed: typeof cfg.seed === "string" ? cfg.seed : undefined,
     out: typeof cfg.out === "string" ? cfg.out : undefined,
     scenarioDirs: Array.isArray(cfg.scenarioDirs)

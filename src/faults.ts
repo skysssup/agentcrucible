@@ -31,7 +31,7 @@ export function shouldApplyFault(
   if (onCall !== undefined && onCall !== callIndex) return false;
   if (spec.probability !== undefined) {
     const p = unitRandom(`${seed}:trial${trialIndex}:${tool}:${callIndex}:${spec.kind}`);
-    if (p > spec.probability) return false;
+    if (spec.probability <= 0 || (spec.probability < 1 && p >= spec.probability)) return false;
   }
   return true;
 }
@@ -150,8 +150,7 @@ function buildDecision(
         },
       };
     case "retry_storm":
-      // Scheduler applies timeout on first N calls via onCallRange; this kind
-      // alone just times out.
+      // onCallRange selects one seeded call; omit it to time out every matching call.
       return {
         apply: true,
         kind,

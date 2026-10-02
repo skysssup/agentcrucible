@@ -75,13 +75,13 @@ describe("config YAML + explicit path", () => {
     }
   });
 
-  it("rejects non-positive trials in config as undefined", () => {
+  it("rejects non-positive trials in config", () => {
     const dir = mkdtempSync(join(tmpdir(), "ac-cfg-"));
     try {
       writeFileSync(join(dir, ".agentcrucible.json"), JSON.stringify({ trials: 0 }));
-      expect(loadConfig(dir).trials).toBeUndefined();
+      expect(() => loadConfig(dir)).toThrow(/trials/);
       writeFileSync(join(dir, ".agentcrucible.json"), JSON.stringify({ trials: -3 }));
-      expect(loadConfig(dir).trials).toBeUndefined();
+      expect(() => loadConfig(dir)).toThrow(/trials/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

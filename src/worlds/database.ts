@@ -12,10 +12,7 @@ interface DbState {
 }
 
 function clone(s: DbState): DbState {
-  return {
-    seq: s.seq,
-    rows: s.rows.map((r) => ({ ...r, data: { ...r.data } })),
-  };
+  return structuredClone(s);
 }
 
 export function createDatabaseWorld(): World {
@@ -75,7 +72,8 @@ export function createDatabaseWorld(): World {
     invoke(tool, args) {
       if (tool === "insert_row") {
         const table = String(args.table ?? "");
-        const data = (args.data ?? {}) as Record<string, unknown>;
+        if (!table.trim() || !args.data || typeof args.data !== 'object' || Array.isArray(args.data)) throw new Error('insert_row requires table and object data');
+        const data = structuredClone(args.data) as Record<string, unknown>;
         const idem = args.idempotency_key !== undefined ? String(args.idempotency_key) : undefined;
         if (idem) {
           const existing = state.rows.find((r) => r.data.__idem === idem);
@@ -92,7 +90,7 @@ export function createDatabaseWorld(): World {
       }
       if (tool === "query_rows") {
         const table = String(args.table ?? "");
-        return state.rows.filter((r) => r.table === table).map((r) => ({ id: r.id, ...r.data }));
+        return structuredClone(state.rows.filter((r) => r.table === table).map((r) => ({ id: r.id, ...r.data })));
       }
       if (tool === "get_balance") {
         const accountId = String(args.account_id ?? "");

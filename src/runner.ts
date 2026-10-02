@@ -8,7 +8,7 @@ import { createWorld } from "./worlds/index.js";
 /** Reject zero, negative, non-integer, and non-finite trial counts. */
 export function parseTrials(raw: unknown): number {
   const n = typeof raw === "number" ? raw : Number(raw);
-  if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
+  if (!Number.isFinite(n) || !Number.isSafeInteger(n) || n <= 0) {
     throw new Error(
       `Invalid trials value: ${String(raw)} (must be a positive integer)`
     );
@@ -28,6 +28,11 @@ export interface RunOptions {
 export async function runScenario(opts: RunOptions): Promise<RunReport> {
   const seed = opts.seed ?? `seed-${opts.scenario.id}`;
   const trialsN = parseTrials(opts.trials ?? 1);
+  if (opts.fuzzCallRange) {
+    const [lo, hi] = opts.fuzzCallRange;
+    parseTrials(lo); parseTrials(hi);
+    if (hi < lo) throw new Error('Invalid fuzz call range');
+  }
   const agent = getAgent(opts.agentId);
   const world = createWorld(opts.scenario.world);
   const startedAt = new Date();
