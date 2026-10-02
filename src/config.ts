@@ -37,11 +37,14 @@ export function findConfigPath(cwd = process.cwd()): string | null {
   return null;
 }
 
-export function loadConfig(cwd = process.cwd()): CrucibleConfig {
-  const path = findConfigPath(cwd);
-  if (!path) return {};
-  const text = readFileSync(path, "utf8");
-  const raw = path.endsWith(".json") ? JSON.parse(text) : parseYaml(text);
+export function parseConfigText(text: string, pathHint = ""): CrucibleConfig {
+  const lower = pathHint.toLowerCase();
+  const raw =
+    lower.endsWith(".yaml") || lower.endsWith(".yml")
+      ? parseYaml(text)
+      : lower.endsWith(".json") || text.trimStart().startsWith("{")
+        ? JSON.parse(text)
+        : parseYaml(text);
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   const cfg = raw as Record<string, unknown>;
   return {
@@ -58,4 +61,16 @@ export function loadConfig(cwd = process.cwd()): CrucibleConfig {
       : undefined,
     defaultTag: typeof cfg.defaultTag === "string" ? cfg.defaultTag : undefined,
   };
+}
+
+/** Load a specific config path (JSON or YAML). */
+export function loadConfigFile(path: string): CrucibleConfig {
+  const text = readFileSync(path, "utf8");
+  return parseConfigText(text, path);
+}
+
+export function loadConfig(cwd = process.cwd()): CrucibleConfig {
+  const path = findConfigPath(cwd);
+  if (!path) return {};
+  return loadConfigFile(path);
 }

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { loadConfig, findConfigPath } from "../src/config.js";
+import { loadConfig, loadConfigFile, findConfigPath } from "../src/config.js";
 import { loadAllScenarios } from "../src/scenarios.js";
 
 describe("config", () => {
@@ -42,5 +42,48 @@ describe("bundled scenarios", () => {
     expect(worlds.has("database")).toBe(true);
     expect(worlds.has("tickets")).toBe(true);
     expect(all.length).toBeGreaterThanOrEqual(12);
+  });
+});
+
+describe("config YAML + explicit path", () => {
+  it("loads .agentcrucible.yaml via auto-discovery", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ac-cfg-"));
+    try {
+      writeFileSync(
+        join(dir, ".agentcrucible.yaml"),
+        "agent: liar\ntrials: 2\ndefaultTag: smoke\n"
+      );
+      const cfg = loadConfig(dir);
+      expect(cfg.agent).toBe("liar");
+      expect(cfg.trials).toBe(2);
+      expect(cfg.defaultTag).toBe("smoke");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("loadConfigFile parses explicit YAML paths (not JSON.parse)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ac-cfg-"));
+    try {
+      const path = join(dir, "custom.yaml");
+      writeFileSync(path, "agent: honest-stop\ntrials: 4\n");
+      const cfg = loadConfigFile(path);
+      expect(cfg.agent).toBe("honest-stop");
+      expect(cfg.trials).toBe(4);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects non-positive trials in config as undefined", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ac-cfg-"));
+    try {
+      writeFileSync(join(dir, ".agentcrucible.json"), JSON.stringify({ trials: 0 }));
+      expect(loadConfig(dir).trials).toBeUndefined();
+      writeFileSync(join(dir, ".agentcrucible.json"), JSON.stringify({ trials: -3 }));
+      expect(loadConfig(dir).trials).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

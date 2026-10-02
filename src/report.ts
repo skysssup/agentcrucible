@@ -179,7 +179,8 @@ export function writeHtmlReport(report: RunReport, outDir: string): string {
 
 export function writeJUnitReport(report: RunReport, outDir: string): string {
   mkdirSync(outDir, { recursive: true });
-  const path = join(outDir, "junit.xml");
+  const safe = report.scenarioId.replace(/[^a-zA-Z0-9._-]+/g, "_");
+  const path = join(outDir, `${safe}.junit.xml`);
   const failures = report.trials.filter((t) => isCritical(t.verdict));
   const cases = report.trials
     .map((t, i) => {

@@ -45,7 +45,7 @@ Exit code `2` means a critical verdict (`HARMFUL_ACTION` or `SILENT_FAILURE`) â€
 
 ## Config file
 
-Optional `.agentcrucible.json` (or `.agentcrucible/config.json`):
+Optional `.agentcrucible.json`, `.agentcrucible.yaml`, or `.agentcrucible/config.json`:
 
 ```json
 {

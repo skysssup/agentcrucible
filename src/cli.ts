@@ -3,10 +3,10 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runDemo } from "./demo.js";
-import { loadConfig, findConfigPath } from "./config.js";
+import { loadConfig, loadConfigFile, findConfigPath } from "./config.js";
 import { AGENTS } from "./fixtures/agents.js";
 import { printReport, writeHtmlReport, writeJsonReport, writeJUnitReport } from "./report.js";
-import { runScenario } from "./runner.js";
+import { runScenario, parseTrials } from "./runner.js";
 import { findScenarios, loadAllScenarios, bundledScenariosDir } from "./scenarios.js";
 import { listWorlds } from "./worlds/index.js";
 import { isCritical } from "./verdict.js";
@@ -180,9 +180,7 @@ function cmdConfig(args: string[]): number {
     console.log("Looked for: .agentcrucible.json, .agentcrucible.yaml, .agentcrucible/config.json");
     return 0;
   }
-  const cfg = explicit
-    ? JSON.parse(readFileSync(explicit, "utf8"))
-    : loadConfig();
+  const cfg = explicit ? loadConfigFile(explicit) : loadConfig();
   console.log(`Config: ${path}`);
   console.log(JSON.stringify(cfg, null, 2));
   return 0;
@@ -190,14 +188,18 @@ function cmdConfig(args: string[]): number {
 
 async function cmdRun(args: string[]): Promise<number> {
   const configPath = flag(args, "--config");
-  const cfg = configPath
-    ? (JSON.parse(readFileSync(configPath, "utf8")) as ReturnType<typeof loadConfig>)
-    : loadConfig();
+  const cfg = configPath ? loadConfigFile(configPath) : loadConfig();
 
   const scenarioId = flag(args, "--scenario");
   const tag = flag(args, "--tag") ?? (!scenarioId ? cfg.defaultTag : undefined);
   const agentId = flag(args, "--agent") ?? cfg.agent ?? "naive-retry";
-  const trials = Number(flag(args, "--trials") ?? cfg.trials ?? "1");
+  let trials: number;
+  try {
+    trials = parseTrials(flag(args, "--trials") ?? cfg.trials ?? 1);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : err);
+    return 1;
+  }
   const seed = flag(args, "--seed") ?? cfg.seed;
   const out = flag(args, "--out") ?? cfg.out ?? ".agentcrucible/out";
   const asJson = args.includes("--json");
@@ -240,16 +242,14 @@ async function cmdRun(args: string[]): Promise<number> {
     if (isCritical(report.aggregateVerdict)) exit = 2;
   }
   if (!asJson) {
-    console.log(`Reports written to ${out}/ (report.json, report.html, junit.xml)`);
+    console.log(`Reports written to ${out}/ (*.report.json, *.report.html, *.junit.xml)`);
   }
   return exit;
 }
 
 async function cmdCompare(args: string[]): Promise<number> {
   const configPath = flag(args, "--config");
-  const cfg = configPath
-    ? (JSON.parse(readFileSync(configPath, "utf8")) as ReturnType<typeof loadConfig>)
-    : loadConfig();
+  const cfg = configPath ? loadConfigFile(configPath) : loadConfig();
   const scenarioId = flag(args, "--scenario");
   if (!scenarioId) {
     console.error("compare requires --scenario <id>");
@@ -259,7 +259,13 @@ async function cmdCompare(args: string[]): Promise<number> {
     flag(args, "--agents") ??
     "naive-retry,honest-stop,idempotent-retry";
   const agentIds = agentsRaw.split(",").map((s) => s.trim()).filter(Boolean);
-  const trials = Number(flag(args, "--trials") ?? "1");
+  let trials: number;
+  try {
+    trials = parseTrials(flag(args, "--trials") ?? 1);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : err);
+    return 1;
+  }
   const seed = flag(args, "--seed") ?? cfg.seed ?? "compare";
   const roots = scenarioRoots(cfg.scenarioDirs);
   const scenarios = findScenarios({ id: scenarioId, root: roots });
