@@ -22,7 +22,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12.0"
   },
   "scripts": {
     "build": "tsup src/cli.ts src/index.ts --format esm --dts --clean --outDir dist",
@@ -39,7 +39,8 @@
     "tsup": "^8.3.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.11",
+    "vite": "^6.4.3"
   },
   "keywords": [
     "fault-injection",

@@ -4,3 +4,6 @@ dist/
 .agentcrucible/demo/
 *.log
 .DS_Store
+.env
+.env.*
+!.env.example

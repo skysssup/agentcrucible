@@ -1,17 +1,13 @@
 # AgentCrucible
 
-AgentCrucible is a mock-tool harness. You define a world (payments, email, …), inject faults, run a scripted policy, and get a verdict: damage vs lying. There is no model API. CI uses the bundled scripts.
-
-```bash
-npx agentcrucible demo
-agentcrucible compare --scenario payments/timeout-after-commit \
-  --agents naive-retry,honest-stop,idempotent-retry
-```
+AgentCrucible tests scripted agent policies against faults in mock payment, email, database, ticket, and filesystem tools. Reports include tool calls, state changes, and rule-based verdicts. It does not call a model API or evaluate real production systems.
 
 ## Install
 
+Requires Node.js 22.12 or later. From a clone of this repository:
+
 ```bash
-npm install
+npm ci
 npm run build
 npm test
 ```
@@ -124,3 +120,7 @@ Also exported: `runHarness`, `gradeTrial`, `evaluatePolicies`, `AGENTS`, `getAge
 ## License
 
 MIT
+
+## Limitations
+
+Verdicts use rules and text matching, not a semantic judge. Some grading rules assume a single intended mutation and recognize only particular tool/result shapes. Bundled scenarios demonstrate those rules; passing them is not evidence that a live agent is safe or production-ready.
