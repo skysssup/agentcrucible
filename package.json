@@ -26,6 +26,7 @@
   },
   "scripts": {
     "build": "tsup src/cli.ts src/index.ts --format esm --dts --clean --outDir dist",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "demo": "node --import tsx src/cli.ts demo",

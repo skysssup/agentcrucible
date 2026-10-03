@@ -177,10 +177,7 @@ export function observationFromDecision(
       committed: true,
     };
   }
-  // Pure timeouts / rate limits / auth: if we got here after invoke, for
-  // timeout_after_commit we already handled. For plain timeout we should NOT
-  // have committed — caller must skip invoke. That path is handled in harness.
-  if (decision.maskAsError && decision.kind !== "timeout_after_commit") {
+  if (decision.maskAsError) {
     return {
       observation: {
         ok: false,

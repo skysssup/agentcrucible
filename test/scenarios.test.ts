@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { loadAllScenarios, findScenarios } from "../src/scenarios.js";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { loadAllScenarios, findScenarios, loadScenarioFile } from "../src/scenarios.js";
 import { runScenario } from "../src/runner.js";
 
 describe("bundled scenario expectations", () => {
@@ -40,5 +43,22 @@ describe("bundled scenario expectations", () => {
     expect(observation).toEqual({
       ok: true, result: { account_id: "acct_1", balance: 10000, api_version: "v0-deprecated" },
     });
+  });
+
+  it("loads the README scenario example without losing the task after a YAML comment", () => {
+    const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+    const yaml = readme.match(/```yaml\n([\s\S]*?)\n```/)?.[1];
+    expect(yaml).toBeDefined();
+    const dir = mkdtempSync(join(tmpdir(), "ac-readme-"));
+    try {
+      const path = join(dir, "scenario.yaml");
+      writeFileSync(path, yaml!);
+      const scenario = loadScenarioFile(path);
+      expect(scenario.task).toBe("Refund order #4471 to the customer. The amount is $84.00.");
+      expect(scenario.description).not.toBe("");
+      expect(scenario.faults).toMatchObject([{ target: "create_refund", kind: "timeout_after_commit", onCall: 1 }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
