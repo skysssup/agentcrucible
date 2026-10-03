@@ -70,7 +70,7 @@ export function printReport(report: RunReport): void {
 
 export function writeJsonReport(report: RunReport, outDir: string): string {
   mkdirSync(outDir, { recursive: true });
-  const safe = report.scenarioId.replace(/[^a-zA-Z0-9._-]+/g, "_");
+  const safe = encodeURIComponent(report.scenarioId);
   const path = join(outDir, `${safe}.report.json`);
   writeFileSync(path, JSON.stringify(report, null, 2));
   return path;
@@ -78,7 +78,7 @@ export function writeJsonReport(report: RunReport, outDir: string): string {
 
 export function writeHtmlReport(report: RunReport, outDir: string): string {
   mkdirSync(outDir, { recursive: true });
-  const safe = report.scenarioId.replace(/[^a-zA-Z0-9._-]+/g, "_");
+  const safe = encodeURIComponent(report.scenarioId);
   const path = join(outDir, `${safe}.report.html`);
   const order = ["HARMFUL_ACTION", "SILENT_FAILURE", "DEGRADED", "SAFE_FAILURE", "SAFE_SUCCESS"];
   const worst = [...report.trials].sort(
@@ -90,10 +90,10 @@ export function writeHtmlReport(report: RunReport, outDir: string): string {
         ? `<code>${escapeHtml(JSON.stringify(c.observed.result))}</code>`
         : `<span class="err">${escapeHtml(c.observed.error)}</span>`;
       return `<tr>
-        <td>${c.id}</td>
-        <td>${c.tool}#${c.callIndex}</td>
+        <td>${escapeHtml(c.id)}</td>
+        <td>${escapeHtml(c.tool)}#${c.callIndex}</td>
         <td>${c.committed ? "yes" : "no"}</td>
-        <td>${c.faultApplied ?? "—"}</td>
+        <td>${escapeHtml(c.faultApplied ?? "—")}</td>
         <td>${obs}</td>
       </tr>`;
     })
@@ -101,7 +101,7 @@ export function writeHtmlReport(report: RunReport, outDir: string): string {
 
   const findings = (worst?.findings ?? [])
     .map(
-      (f) => `<li class="v-${f.verdict}"><strong>${f.verdict}</strong> <code>${f.rule}</code>
+      (f) => `<li><strong>${escapeHtml(f.verdict)}</strong> <code>${escapeHtml(f.rule)}</code>
         <div>${escapeHtml(f.reason)}</div>
         <ul>${f.evidence.map((e) => `<li>${escapeHtml(e.kind)}: ${escapeHtml(e.summary)}</li>`).join("")}</ul>
       </li>`
@@ -144,7 +144,7 @@ export function writeHtmlReport(report: RunReport, outDir: string): string {
 <main>
   <h1>AgentCrucible report</h1>
   <div class="meta">${escapeHtml(report.scenarioId)} · agent <code>${escapeHtml(report.agentId)}</code> · seed <code>${escapeHtml(report.seed)}</code></div>
-  <div><span class="badge ${report.aggregateVerdict}">${report.aggregateVerdict}</span></div>
+  <div><span class="badge ${escapeHtml(report.aggregateVerdict)}">${escapeHtml(report.aggregateVerdict)}</span></div>
 
   <div class="panel stats">
     <div class="stat"><div class="n">${report.stats.total}</div><div class="l">Trials</div></div>
@@ -179,7 +179,7 @@ export function writeHtmlReport(report: RunReport, outDir: string): string {
 
 export function writeJUnitReport(report: RunReport, outDir: string): string {
   mkdirSync(outDir, { recursive: true });
-  const safe = report.scenarioId.replace(/[^a-zA-Z0-9._-]+/g, "_");
+  const safe = encodeURIComponent(report.scenarioId);
   const path = join(outDir, `${safe}.junit.xml`);
   const failures = report.trials.filter((t) => isCritical(t.verdict));
   const cases = report.trials
@@ -203,8 +203,9 @@ ${cases}
 }
 
 function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 function escapeXml(s: string): string {
-  return escapeHtml(s).replace(/"/g, "&quot;");
+  return escapeHtml(s);
 }

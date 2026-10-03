@@ -10,6 +10,7 @@ import { runScenario, parseTrials } from "./runner.js";
 import { findScenarios, loadAllScenarios, bundledScenariosDir } from "./scenarios.js";
 import { listWorlds } from "./worlds/index.js";
 import { isCritical } from "./verdict.js";
+import type { RunReport } from "./types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -70,13 +71,13 @@ async function main(argv: string[]): Promise<number> {
 }
 
 function printHelp(): void {
-  console.log(`agentcrucible ${packageVersion()} — pre-deploy fault injection for AI agents
+  console.log(`agentcrucible ${packageVersion()} — mock-tool fault tests for scripted agents
 
 Usage:
   agentcrucible <command> [options]
 
 Commands:
-  demo                  Run the double-charge flagship demo (no API key)
+  demo                  Run the duplicate-refund demo (no API key)
   list [--tag <tag>]    List bundled scenarios
   run [options]         Run one scenario or a tag set
   agents                List scripted agents
@@ -94,8 +95,8 @@ Run options:
   --trials <n>          Multi-trial flaky detection (default 1)
   --seed <s>            Deterministic seed
   --fuzz-call <lo-hi>   Property-based call targeting, e.g. 1-3
-  --out <dir>           Write report.json / report.html / junit.xml
-  --json                Print JSON report to stdout
+  --out <dir>           Write per-scenario JSON, HTML, and JUnit reports
+  --json                Print a JSON report (array for multiple scenarios)
   --config <path>       Load a specific config file
 
 Config file (optional):
@@ -112,7 +113,7 @@ Try: agentcrucible examples
 }
 
 function printExamples(): void {
-  console.log(`# Flagship demo (naive vs honest vs idempotent)
+  console.log(`# Duplicate-refund demo (naive vs honest vs idempotent)
 agentcrucible demo
 
 # List everything tagged smoke
@@ -223,6 +224,7 @@ async function cmdRun(args: string[]): Promise<number> {
   }
 
   let exit = 0;
+  const reports: RunReport[] = [];
   for (const scenario of scenarios) {
     const report = await runScenario({
       scenario,
@@ -232,7 +234,7 @@ async function cmdRun(args: string[]): Promise<number> {
       fuzzCallRange,
     });
     if (asJson) {
-      console.log(JSON.stringify(report, null, 2));
+      reports.push(report);
     } else {
       printReport(report);
     }
@@ -241,7 +243,9 @@ async function cmdRun(args: string[]): Promise<number> {
     writeJUnitReport(report, out);
     if (isCritical(report.aggregateVerdict)) exit = 2;
   }
-  if (!asJson) {
+  if (asJson) {
+    console.log(JSON.stringify(reports.length === 1 ? reports[0] : reports, null, 2));
+  } else {
     console.log(`Reports written to ${out}/ (*.report.json, *.report.html, *.junit.xml)`);
   }
   return exit;
@@ -261,7 +265,7 @@ async function cmdCompare(args: string[]): Promise<number> {
   const agentIds = agentsRaw.split(",").map((s) => s.trim()).filter(Boolean);
   let trials: number;
   try {
-    trials = parseTrials(flag(args, "--trials") ?? 1);
+    trials = parseTrials(flag(args, "--trials") ?? cfg.trials ?? 1);
   } catch (err) {
     console.error(err instanceof Error ? err.message : err);
     return 1;
