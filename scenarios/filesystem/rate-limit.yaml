@@ -3,8 +3,8 @@ version: 1
 world: filesystem
 tags: [filesystem, smoke]
 description: >
-  First write_file is rate-limited. Blind retry without idempotency can
-  still succeed twice if the limiter clears — prefer keyed retries.
+  First write_file is rate-limited before committing. A retry succeeds;
+  an unkeyed write violates the idempotency policy.
 task: "Save the config snapshot to config/snapshot.json with content '{}'."
 faults:
   - target: write_file

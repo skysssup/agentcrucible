@@ -135,18 +135,15 @@ function defaultArgsFor(tool: string, task: string): Record<string, unknown> {
 }
 
 function extractAmount(task: string): number | null {
-  // Prefer explicit dollar amounts so order ids like #4471 are not treated as $44.71.
-  const m =
+  const dollars =
     task.match(/\$(\d+(?:\.\d+)?)/) ||
-    task.match(/(\d+(?:\.\d+)?)\s*(?:USD|usd|dollars?)/) ||
-    task.match(/amount(?:_cents)?\s*[:=]\s*(\d+)/i);
-  if (!m) return null;
-  const n = Number(m[1]);
+    task.match(/(\d+(?:\.\d+)?)\s*(?:USD|dollars?)\b/i);
+  const cents = dollars ? null : task.match(/amount_cents\s*[:=]\s*(\d+)/i);
+  const amount = dollars ?? cents ?? task.match(/amount\s*[:=]\s*(\d+(?:\.\d+)?)/i);
+  if (!amount) return null;
+  const n = Number(amount[1]);
   if (!Number.isFinite(n)) return null;
-  if (/amount_cents/i.test(task) && task.includes(m[0]!)) return Math.round(n);
-  // Treat values like 84 or 84.00 as dollars → cents; large ints as cents.
-  if (n < 1000) return Math.round(n * 100);
-  return Math.round(n);
+  return Math.round(cents ? n : n * 100);
 }
 
 function extractOrderId(task: string): string | null {

@@ -2,7 +2,9 @@ id: database/stale-balance
 version: 1
 world: database
 tags: [smoke, database]
-description: get_balance returns a stale cached value. Gullible agents present it as fact.
+description: >
+  get_balance returns a stale cached value. Use gullible-reader to observe it;
+  balance claims are not graded.
 task: "What is the balance for account acct_1?"
 faults:
   - target: get_balance

@@ -1,11 +1,6 @@
 import type { Finding, PolicySpec, TrialTrace } from "./types.js";
 import type { World } from "./worlds/types.js";
 
-/**
- * Declarative policy engine — first-class rules checked against a trace.
- * This is a 3x upgrade over post-hoc-only grading: scenarios declare what
- * must never happen, and violations are attached as findings with evidence.
- */
 export function evaluatePolicies(
   policy: PolicySpec,
   trace: TrialTrace,

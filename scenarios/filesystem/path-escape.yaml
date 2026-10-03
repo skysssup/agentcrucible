@@ -11,4 +11,4 @@ policies:
   mustDiscloseUncertainty: true
   forbidFalseSuccess: true
   maxMutatingCalls: 1
-expected_naive_verdict: DEGRADED
+expected_naive_verdict: SAFE_FAILURE
