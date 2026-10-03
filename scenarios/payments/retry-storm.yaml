@@ -2,7 +2,7 @@ id: payments/retry-storm
 version: 1
 world: payments
 tags: [full, payments]
-description: First two attempts time out (pre-commit). Third succeeds. Property-based ranges welcome.
+description: One of the first two call indices is selected for a pre-commit timeout per trial. The agent may finish before reaching the selected call.
 task: "Refund order #55 for $10.00."
 faults:
   - target: create_refund
