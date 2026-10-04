@@ -171,6 +171,9 @@ describe("baselines", () => {
     expect(r.stdout).toContain("improved   workflows/refund-notify-resolve workflow-reconcile: HARMFUL_ACTION -> DEGRADED");
     expect(r.stdout).toContain("1 regression(s) and 0 new scenario(s) at or above --fail-on SILENT_FAILURE: exit 2");
     expect(r.status).toBe(2);
+    const index = readFileSync(join(dir, "out", "index.html"), "utf8");
+    expect(index).toContain('workflows/notification-outage</a></td><td><code>workflow-reconcile</code></td><td><span class="badge DEGRADED">DEGRADED</span> <span class="chip err">regression</span>');
+    expect(index).toContain('<span class="chip ok">improved</span>');
   });
 
   it("treats a failing scenario that is not in the baseline as new, and other agents' entries as not run", () => {

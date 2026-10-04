@@ -118,6 +118,8 @@ A run of several trials takes its worst trial's verdict, so five trials pass onl
 - `*.report.html`: an interactive timeline of the same record. It loads nothing from the network.
 - `*.junit.xml`: one test case per trial, for CI.
 
+It also writes `index.html`, which links every report page of the run with its verdict.
+
 [docs/grading.md](docs/grading.md) defines every rule, how answers are read, and what the grader cannot see.
 
 ### Exit status

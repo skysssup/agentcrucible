@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { describeFault, formatCallLines, painter, shouldColor, worstTrial, writeHtmlReport, writeJsonReport } from "./report.js";
+import { describeFault, formatCallLines, painter, shouldColor, worstTrial, writeHtmlReport, writeJsonReport, writeRunIndex } from "./report.js";
 import type { Registry } from "./registry.js";
 import { runScenario } from "./runner.js";
 import type { RunReport, Scenario } from "./types.js";
@@ -62,7 +62,8 @@ export async function runDemo(scenario: Scenario, registry: Registry, out?: stri
       writeJsonReport(report, join(out, report.agentId));
       writeHtmlReport(report, join(out, report.agentId));
     }
-    log(`Wrote JSON and HTML reports to ${join(out, "<agent>")}/`);
+    writeRunIndex(reports.map((report) => ({ report, dir: report.agentId })), out, `AgentCrucible demo: ${scenario.id}`, "SILENT_FAILURE");
+    log(`Wrote JSON and HTML reports to ${join(out, "<agent>")}/ and an index to ${join(out, "index.html")}`);
   }
   if (mismatches.length === 0) {
     log("Every verdict matches the scenario's expected_verdicts. HARMFUL_ACTION and SILENT_FAILURE here are the");

@@ -2,7 +2,8 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { formatReport, writeHtmlReport, writeJsonReport, writeJUnitReport } from "../src/report.js";
+import { renderReportHtml } from "../src/html.js";
+import { formatReport, writeHtmlReport, writeJsonReport, writeJUnitReport, writeRunIndex } from "../src/report.js";
 import { runScenario } from "../src/runner.js";
 import { findScenarios, parseScenario } from "../src/scenarios.js";
 import type { RunReport } from "../src/types.js";
@@ -102,6 +103,45 @@ describe("HTML report", () => {
     expect(html).not.toContain('<script>"marker"');
     expect(html).toContain("&lt;script&gt;&quot;marker&quot;&lt;/script&gt;#1");
     expect(html).toContain("unknown tool: &lt;script&gt;");
+  });
+
+  it("gives the commands that reproduce the run, a call filter, and both color themes", async () => {
+    const dir = tempDir();
+    const r = await report("payments/timeout-after-commit", "naive-retry", 2);
+    const html = readFileSync(writeHtmlReport(r, dir), "utf8");
+    expect(html).toContain("<code>agentcrucible run --scenario payments/timeout-after-commit --agent naive-retry --seed seed-payments/timeout-after-commit --trials 2</code>");
+    expect(html).toContain("<code>agentcrucible replay payments%2Ftimeout-after-commit.report.json</code>");
+    expect(html).toContain('id="call-search"');
+    expect(html).toContain('id="filter-faults"');
+    expect(html).toContain("World state after this call");
+    expect(html).toContain("prefers-color-scheme: dark");
+    expect(html).toContain('<html lang="en">');
+    expect(renderReportHtml(r, { theme: "dark" })).toContain('<html lang="en" data-theme="dark">');
+    expect(renderReportHtml({ ...r, seed: "it's here" })).toContain("--seed &#39;it&#39;\\&#39;&#39;s here&#39;");
+  });
+});
+
+describe("run index", () => {
+  it("links every report page and counts the verdicts", async () => {
+    const dir = tempDir();
+    const reports = [await report("payments/timeout-after-commit", "naive-retry"), await report("payments/rate-limit", "honest-stop")];
+    for (const r of reports) writeHtmlReport(r, join(dir, r.agentId));
+    const html = readFileSync(writeRunIndex(reports.map((r) => ({ report: r, dir: r.agentId })), dir, "Run <1>", "SILENT_FAILURE"), "utf8");
+    expect(html).toContain("<title>Run &lt;1&gt;</title>");
+    const hrefs = [...html.matchAll(/<a href="([^"]+)">/g)].map((m) => m[1]);
+    expect(hrefs).toEqual(["naive-retry/payments%252Ftimeout-after-commit.report.html", "honest-stop/payments%252Frate-limit.report.html"]);
+    for (const href of hrefs) expect(readFileSync(join(dir, decodeURIComponent(href)), "utf8")).toContain("<ol class=\"timeline\">");
+    expect(html).toContain('1 <span class="badge HARMFUL_ACTION">HARMFUL_ACTION</span>');
+    expect(html).toContain("expect.duplicate_effect");
+    expect(html).not.toMatch(/<script\b|<(?:link|img|iframe)\b|src=|https?:\/\//);
+  });
+
+  it("labels baseline changes", async () => {
+    const dir = tempDir();
+    const r = await report("payments/timeout-after-commit", "naive-retry");
+    const html = readFileSync(writeRunIndex([{ report: r, change: "regression" }], dir, "Run", "SILENT_FAILURE"), "utf8");
+    expect(html).toContain('<span class="chip err">regression</span>');
+    expect(html).toContain('<a href="payments%252Ftimeout-after-commit.report.html">');
   });
 });
 

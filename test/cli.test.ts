@@ -316,6 +316,9 @@ describe("check, demo, and informational commands", () => {
       const json = JSON.parse(readFileSync(join(out, agent, "payments%2Ftimeout-after-commit.report.json"), "utf8"));
       expect(json.agentId).toBe(agent);
     }
+    const index = readFileSync(join(out, "index.html"), "utf8");
+    expect(index).toContain('<a href="naive-retry/payments%252Ftimeout-after-commit.report.html">');
+    expect(index.match(/<tr><td>/g)).toHaveLength(5);
   });
 
   it("demo exits 2 when a verdict does not match the scenario", () => {

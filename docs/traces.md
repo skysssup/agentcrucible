@@ -74,13 +74,16 @@ Replay needs every world and fault kind the report uses. Reports from extension 
 
 ## The HTML timeline
 
-`run` writes `*.report.html` next to each JSON report, and `demo --out <dir>` writes one per agent. The page is a single file that loads nothing from the network:
+`run` writes `*.report.html` next to each JSON report and an `index.html` that links them all, and `demo --out <dir>` writes one page per agent plus the index. The pages are single files that load nothing from the network:
 
-- **Header:** the task, the fault schedule, the budget, and the expectations as a list: each outcome, allowed change, invariant, and answer check.
+- **Header:** the task, the fault schedule, the budget, the expectations as a list (each outcome, allowed change, invariant, and answer check), and the commands that reproduce the run: `run` with the same seed and trial count, and `replay` of the JSON report. Each has a copy button.
 - **Trials:** every trial with its verdict. Clicking one shows that trial; the worst trial is shown first. Pages with more than 50 trials show the first 50 and the worst one in full and list the rest.
-- **Timeline:** one entry per call, marked as committed, failed, or faulted, with the state change it made. Expanding an entry shows the arguments, what the agent saw, what the world returned, schema violations, and the findings that cite the call.
+- **Timeline:** one entry per call, marked as committed, failed, or faulted, with the state change it made. Expanding an entry shows the arguments, what the agent saw, what the world returned, schema violations, the findings that cite the call, and, one click further, the whole world state after the call.
 - **Side panel:** the committed changes, the outcome and each answer check, and the findings. Every call id in a finding's evidence links to that call; following the link opens and outlines it.
-- **Filter:** "only calls with faults, errors, or findings" hides the routine calls of a long trial.
+- **Filters:** the search box (focus it with `/`) keeps the calls whose tool, arguments, or responses contain the text; "only calls with faults, errors, or findings" hides the routine calls of a long trial.
+- **Colors:** the pages follow the system's light or dark setting.
+
+The run index lists each report with its verdict, deciding rule, and reason. With `--baseline`, each row is also labeled as a regression, new failure, improvement, rule change, new entry, or unchanged.
 
 The JSON report holds the same information, and `inspect` prints it in the terminal.
 

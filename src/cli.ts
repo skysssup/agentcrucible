@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { compareBaseline, createBaseline, readBaseline, writeBaseline, type BaselineComparison } from "./baseline.js";
 import { findConfigPath, loadConfig, loadConfigFile, type CrucibleConfig } from "./config.js";
 import { DEMO_SCENARIO, runDemo } from "./demo.js";
-import { formatTrialDetail, painter, printReport, readReportFile, shouldColor, worstTrial, writeHtmlReport, writeJsonReport, writeJUnitReport } from "./report.js";
+import type { RunIndexEntry } from "./html.js";
+import { formatTrialDetail, painter, printReport, readReportFile, shouldColor, worstTrial, writeHtmlReport, writeJsonReport, writeJUnitReport, writeRunIndex } from "./report.js";
 import { builtinRegistry, isModulePath, loadAgentModule, loadExtension, type Registry } from "./registry.js";
 import { replayReport } from "./replay.js";
 import { parseTrials, runScenario } from "./runner.js";
@@ -224,12 +225,18 @@ async function cmdRun(flags: Flags): Promise<number> {
     log(`Baseline written to ${savePath} (${reports.length} entr${reports.length === 1 ? "y" : "ies"})`);
   }
   const failing = reports.filter((r) => atLeast(r.aggregateVerdict, threshold));
+  const comparison = baseline ? compareBaseline(baseline, reports) : undefined;
+  writeRunIndex(
+    reports.map((report) => ({ report, ...(comparison ? { change: baselineChange(comparison, report, threshold) } : {}) })),
+    out,
+    `AgentCrucible run: ${reports.length === 1 ? reports[0].scenarioId : `${reports.length} scenarios`} (agent ${agent})`,
+    threshold
+  );
   if (asJson) console.log(JSON.stringify(reports.length === 1 ? reports[0] : reports, null, 2));
   else if (reports.length > 1) printSummary(reports, threshold);
-  if (!asJson) console.log(`Reports written to ${out}/ (*.report.json, *.report.html, *.junit.xml)`);
+  if (!asJson) console.log(`Reports written to ${out}/ (index.html, *.report.json, *.report.html, *.junit.xml)`);
 
-  if (baseline && baselinePath) {
-    const comparison = compareBaseline(baseline, reports);
+  if (comparison && baselinePath) {
     writeFileSync(join(out, "baseline-comparison.json"), `${JSON.stringify(comparison, null, 2)}\n`);
     printComparison(comparison, baselinePath, threshold, log);
     if (comparison.incomparable.length) {
@@ -252,6 +259,15 @@ async function cmdRun(flags: Flags): Promise<number> {
     );
   }
   return failing.length ? 2 : 0;
+}
+
+function baselineChange(c: BaselineComparison, report: RunReport, threshold: Verdict): NonNullable<RunIndexEntry["change"]> {
+  const is = (e: { scenario: string; agent: string }) => e.scenario === report.scenarioId && e.agent === report.agentId;
+  if (c.regressions.some(is)) return "regression";
+  if (c.improvements.some(is)) return "improved";
+  if (c.changed.some(is)) return "changed";
+  if (c.added.some(is)) return atLeast(report.aggregateVerdict, threshold) ? "new failure" : "new";
+  return "unchanged";
 }
 
 function printComparison(c: BaselineComparison, path: string, threshold: Verdict, log: (line?: string) => void): void {
