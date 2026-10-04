@@ -386,9 +386,8 @@ async function cmdReplay(flags: Flags, path?: string): Promise<number> {
       console.log(`  trial ${t.trialIndex}: DIVERGED at ${d.at} (${d.field}): recorded ${JSON.stringify(d.recorded)}; replayed ${JSON.stringify(d.replayed)}`);
       continue;
     }
-    const same = t.verdict === t.recordedVerdict && JSON.stringify(t.rules) === JSON.stringify(t.recordedRules);
     console.log(
-      `  trial ${t.trialIndex}: ${t.replayedCalls} call(s) replayed identically; ${same ? `verdict ${t.verdict} as recorded` : `GRADED DIFFERENTLY: ${t.verdict} [${t.rules!.join(", ")}], recorded ${t.recordedVerdict} [${t.recordedRules.join(", ")}]`}`
+      `  trial ${t.trialIndex}: ${t.replayedCalls} call(s) replayed identically; ${t.reproduced ? `verdict ${t.verdict} as recorded` : `GRADED DIFFERENTLY: ${t.verdict} [${t.rules!.join(", ")}], recorded ${t.recordedVerdict} [${t.recordedRules.join(", ")}]`}`
     );
   }
   console.log(result.reproduced ? "Reproduced: every call, state, and verdict matches the report." : "Not reproduced: see the differences above (exit 2).");

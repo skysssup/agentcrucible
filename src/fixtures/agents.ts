@@ -1,3 +1,4 @@
+import { formatCents as dollars } from "../format.js";
 import type { AgentAnswer, AgentContext, ScriptedAgent, ToolCallResult } from "../harness.js";
 
 /** Retries a failed mutating call once, with no idempotency key. */
@@ -345,10 +346,6 @@ function readArgsFor(tool: string, task: string): Record<string, unknown> {
     default:
       return {};
   }
-}
-
-function dollars(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
 }
 
 function extractAmount(task: string): number | null {

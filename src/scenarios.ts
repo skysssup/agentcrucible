@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import { isValueRef, violation } from "./expect.js";
 import { builtinRegistry, createWorlds, type Registry } from "./registry.js";
-import { isRegExp, schemaProblems, validate, type JsonSchema } from "./schema.js";
+import { isRegExp, jsonType as typeOf, schemaProblems, validate, type JsonSchema } from "./schema.js";
 import {
   VERDICTS,
   type AnswerAssertion,
@@ -407,10 +407,6 @@ function parseExpectedVerdicts(doc: Raw, registry: Registry, fail: Fail): Record
     result["naive-retry"] = naive as Verdict;
   }
   return result;
-}
-
-function typeOf(value: unknown): string {
-  return Array.isArray(value) ? "array" : value === null ? "null" : typeof value;
 }
 
 function asObject(value: unknown, path: string, fail: Fail): Raw {

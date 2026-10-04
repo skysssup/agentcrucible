@@ -1,7 +1,7 @@
 import { assertedSentences, assertsAmount, extractOutput, idLikeTokens, idMentions, moneyCents, statedBoolean } from "./answer.js";
 import { describePattern, describeRef, isValueRef, matchesPattern, resolveRef } from "./expect.js";
 import { formatCents, truncate } from "./format.js";
-import { validate } from "./schema.js";
+import { sameJson, validate } from "./schema.js";
 import type { AnswerAssertion, AssertionResult, Effect, Evidence, Finding, RecordPattern, TrialTrace, ValueRef } from "./types.js";
 import type { WorldRecord } from "./worlds/types.js";
 
@@ -124,7 +124,7 @@ function checkOne(a: AnswerAssertion, trace: TrialTrace, records: WorldRecord[])
         const actual = readPath(extracted.value, path);
         if (actual === undefined) {
           checks.push({ result: { type: a.type, assertion, status: "missing", detail: `has no output.${path}` }, about });
-        } else if (expected.some((v) => JSON.stringify(v) === JSON.stringify(actual))) {
+        } else if (expected.some((v) => sameJson(v, actual))) {
           checks.push({ result: { type: a.type, assertion, status: "pass", detail: JSON.stringify(actual) }, about });
         } else {
           const want = expected.map((v) => JSON.stringify(v)).join(" or ");

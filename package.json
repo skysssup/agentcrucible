@@ -1,7 +1,7 @@
 {
   "name": "agentcrucible",
-  "version": "0.4.0",
-  "description": "Fault-injection tests for tool-using agents: mock worlds, injected tool failures, and verdicts checked against committed state. Runs offline.",
+  "version": "0.5.0",
+  "description": "Fault-injection tests for tool-using agents: multi-step workflows over mock worlds, scheduled tool failures, and verdicts checked against committed state and the agent's answer. Runs offline.",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -53,7 +53,9 @@
     "fault-injection",
     "testing",
     "idempotency",
-    "evaluation"
+    "evaluation",
+    "workflows",
+    "replay"
   ],
   "repository": {
     "type": "git",

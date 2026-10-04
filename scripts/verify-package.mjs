@@ -2,7 +2,7 @@
 // Packs the package (or takes --tarball <file>), installs it into an empty project outside
 // the checkout, and exercises the installed CLI, library, and type declarations.
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -86,19 +86,73 @@ try {
   const example = run(process.execPath, ["custom-agent.mjs"], consumer);
   check("examples/custom-agent.mjs runs against the installed package", example.status === 0 && example.stdout.includes("Verdict: SAFE_SUCCESS"), example.stderr || example.stdout.slice(-300));
 
+  cpSync(join(root, "examples", "agents"), join(consumer, "agents"), { recursive: true });
+  const moduleRun = cli("run", "--scenario", "payments/timeout-after-commit", "--agent", "./agents/careful-refund.mjs", "--json", "--out", "module-reports");
+  let moduleReport;
+  try {
+    moduleReport = JSON.parse(moduleRun.stdout);
+  } catch {
+    moduleReport = undefined;
+  }
+  check("run --agent <module path> grades examples/agents/careful-refund.mjs", moduleRun.status === 0 && moduleReport?.agentId === "careful-refund" && moduleReport?.aggregateVerdict === "SAFE_SUCCESS", moduleRun.stderr || moduleRun.stdout.slice(-300));
+
+  writeFileSync(join(consumer, "typed-agent.ts"), 'export default async function (ctx: { callTool: (n: string, a: object) => Promise<{ ok: boolean }> }): Promise<string> {\n  const r = await ctx.callTool("list_refunds", { order_id: "1" });\n  return r.ok ? "Listed." : "failed";\n}\n');
+  const tsAgent = cli("run", "--scenario", "payments/rate-limit", "--agent", "./typed-agent.ts", "--out", "ts-reports");
+  const strips = Boolean(process.features.typescript);
+  check(
+    strips ? "a TypeScript agent module loads on this Node version" : "a TypeScript agent module on this Node version explains how to load it",
+    strips ? tsAgent.status !== 1 && tsAgent.stdout.includes("agent typed-agent") : tsAgent.status === 1 && tsAgent.stderr.includes("compile the module to JavaScript"),
+    tsAgent.stderr || tsAgent.stdout.slice(-300)
+  );
+
+  cpSync(join(root, "examples", "inventory"), join(consumer, "inventory"), { recursive: true });
+  const inventory = (...cliArgs) => run(bin, cliArgs, join(consumer, "inventory"));
+  const extCheck = inventory("check", "--scenario", "inventory/lost-reservation");
+  check("examples/inventory loads as an extension and its scenario passes check", extCheck.status === 0 && extCheck.stdout.includes("2/2 checks pass"), extCheck.stdout.slice(-300) + extCheck.stderr);
+  const extFaults = inventory("faults");
+  check("faults lists the extension's lost_write kind", extFaults.status === 0 && /^lost_write\s+before/m.test(extFaults.stdout), extFaults.stdout.slice(-300) + extFaults.stderr);
+
+  const workflowRun = cli("run", "--scenario", "workflows/refund-notify-resolve", "--agent", "workflow-reconcile", "--trials", "2", "--out", "traces", "--save-baseline", "baseline.json");
+  const saved = join("traces", "workflows%2Frefund-notify-resolve.report.json");
+  check("run --save-baseline writes a baseline", workflowRun.status === 0 && existsSync(join(consumer, "baseline.json")), workflowRun.stderr || workflowRun.stdout.slice(-300));
+  const inspect = cli("inspect", saved, "--call", "call_4");
+  check("inspect prints a saved call", inspect.status === 0 && inspect.stdout.includes('state changes:  ~ refund re_2_4471 status="voided"'), inspect.stderr || inspect.stdout.slice(-300));
+  const replay = cli("replay", saved);
+  check("replay reproduces a saved run", replay.status === 0 && replay.stdout.includes("Reproduced: every call, state, and verdict matches the report."), replay.stderr || replay.stdout.slice(-300));
+  const html = readFileSync(join(consumer, "traces", "workflows%2Frefund-notify-resolve.report.html"), "utf8");
+  check("the HTML report is a self-contained timeline", html.includes('<ol class="timeline">') && html.includes('href="#t0-call_4"') && !/<(?:link|img|iframe)\b|src=|https?:\/\//.test(html));
+  const same = cli("run", "--scenario", "workflows/refund-notify-resolve", "--agent", "workflow-reconcile", "--trials", "2", "--out", "traces", "--baseline", "baseline.json");
+  check("run --baseline passes when nothing changed", same.status === 0 && same.stdout.includes("No regressions against the baseline: exit 0"), same.stderr || same.stdout.slice(-300));
+  const baseline = JSON.parse(readFileSync(join(consumer, "baseline.json"), "utf8"));
+  baseline.entries[0].verdict = "SAFE_SUCCESS";
+  writeFileSync(join(consumer, "baseline.json"), JSON.stringify(baseline));
+  const worse = cli("run", "--scenario", "workflows/refund-notify-resolve", "--agent", "workflow-reconcile", "--trials", "2", "--out", "traces", "--baseline", "baseline.json");
+  check("run --baseline exits 2 on a regression", worse.status === 2 && worse.stdout.includes("REGRESSION workflows/refund-notify-resolve workflow-reconcile: SAFE_SUCCESS -> DEGRADED"), worse.stderr || worse.stdout.slice(-300));
+
   writeFileSync(
     join(consumer, "typed.ts"),
-    `import { runScenario, findScenarios, VERDICTS, type RunReport, type ScriptedAgent, type Verdict } from "agentcrucible";
+    `import {
+  builtinRegistry, compareBaseline, createBaseline, extendRegistry, findScenarios, replayReport, runScenario, VERDICTS,
+  type AgentAnswer, type Extension, type FaultDefinition, type JsonSchema, type RunReport, type ScriptedAgent, type Verdict, type WorldFactory,
+} from "agentcrucible";
 const agent: ScriptedAgent = async (ctx) => {
   const tool = ctx.tools.find((t) => t.mutating);
   if (!tool) return "no tools";
+  const schema: JsonSchema = tool.inputSchema;
   const res = await ctx.callTool(tool.name, { order_id: "1", amount_cents: 100 });
-  return res.ok ? "done" : \`failed: \${res.error}\`;
+  const answer: AgentAnswer = { text: res.ok ? "done" : \`failed: \${res.error}\`, output: { required: schema.required ?? [] } };
+  return answer;
 };
-const report: RunReport = await runScenario({ scenario: findScenarios({ id: "payments/rate-limit" })[0], agent });
+const fault: FaultDefinition = { description: "always 503", stage: "before", apply: () => ({ ok: false, error: "503", code: "E503" }) };
+const extension: Extension = { faults: { unavailable: fault } };
+const registry = extendRegistry(builtinRegistry(), extension, "inline");
+const world: WorldFactory | undefined = registry.worlds.get("payments")?.value;
+const report: RunReport = await runScenario({ scenario: findScenarios({ id: "payments/rate-limit", registry })[0], agent, registry });
+const reproduced: boolean = replayReport(report, registry).reproduced;
+const regressions = compareBaseline(createBaseline([report]), [report]).regressions.length;
 const verdict: Verdict = report.aggregateVerdict;
 const severe: readonly Verdict[] = VERDICTS;
-export { verdict, severe };
+export { verdict, severe, reproduced, regressions, world };
 `
   );
   writeFileSync(

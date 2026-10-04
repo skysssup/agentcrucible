@@ -1,5 +1,6 @@
 import type { Effect, TrialTrace } from "../types.js";
 import { truncate } from "../format.js";
+import { sameJson } from "../schema.js";
 import type { World, WorldRecord } from "./types.js";
 
 export type { FieldType, World, WorldFactory, WorldRecord, WorldTool } from "./types.js";
@@ -83,14 +84,14 @@ export function traceEffects(world: World, trace: TrialTrace): Effect[] {
 
 function sameData(a: WorldRecord, b: WorldRecord): boolean {
   const strip = ({ idempotency_key: _key, ...rest }: Record<string, unknown>) => rest;
-  return JSON.stringify(strip(a.fields)) === JSON.stringify(strip(b.fields));
+  return sameJson(strip(a.fields), strip(b.fields));
 }
 
 /** "+ refund re_1 ..." for a new record (with its idempotency key), "~ ticket tkt_7 ..." listing the fields that changed. */
 function summarize(record: WorldRecord, prior: WorldRecord | undefined): string {
   const fields = Object.entries(record.fields)
     .filter(([key, value]) => key !== "idempotency_key" && value !== record.id)
-    .filter(([key, value]) => !prior || JSON.stringify(prior.fields[key]) !== JSON.stringify(value))
+    .filter(([key, value]) => !prior || !sameJson(prior.fields[key], value))
     .map(([key, value]) => `${key}=${truncate(JSON.stringify(value), 60)}`)
     .join(" ");
   if (prior) return `~ ${record.kind} ${record.id} ${fields}`;

@@ -1,6 +1,7 @@
 import { gradeTrial } from "./grader.js";
 import { createToolCaller } from "./harness.js";
 import { createWorlds, faultDefinitions, type Registry } from "./registry.js";
+import { sameJson as same } from "./schema.js";
 import type { RunReport, ToolCallRecord, Verdict } from "./types.js";
 
 export interface ReplayDivergence {
@@ -21,6 +22,8 @@ export interface ReplayedTrial {
   verdict?: Verdict;
   recordedRules: string[];
   rules?: string[];
+  /** True when the calls replayed identically and the trial graded the same. */
+  reproduced: boolean;
 }
 
 export interface ReplayResult {
@@ -62,7 +65,7 @@ export function replayReport(report: RunReport, registry: Registry): ReplayResul
     if (scenario.setup.length) world.seed!(structuredClone(scenario.setup));
     const before = world.snapshot();
     if (!same(before, recorded.worldBefore)) {
-      return { ...base, replayedCalls: 0, divergence: { at: "setup", field: "worldBefore", recorded: recorded.worldBefore, replayed: before } };
+      return { ...base, replayedCalls: 0, reproduced: false, divergence: { at: "setup", field: "worldBefore", recorded: recorded.worldBefore, replayed: before } };
     }
     const caller = createToolCaller({ world, faults: report.faults, faultKinds, seed: report.seed, trialIndex: recorded.trialIndex, budget: scenario.budget });
     for (const [i, call] of recorded.calls.entries()) {
@@ -70,27 +73,24 @@ export function replayReport(report: RunReport, registry: Registry): ReplayResul
       try {
         replayed = caller.call(call.tool, call.args);
       } catch (err) {
-        return { ...base, replayedCalls: i, divergence: { at: call.id, field: "error", recorded: call.observed, replayed: (err as Error).message } };
+        return { ...base, replayedCalls: i, reproduced: false, divergence: { at: call.id, field: "error", recorded: call.observed, replayed: (err as Error).message } };
       }
       const field = COMPARED.find((key) => !same(call[key], replayed[key]));
-      if (field) return { ...base, replayedCalls: i + 1, divergence: { at: call.id, field, recorded: call[field], replayed: replayed[field] } };
+      if (field) return { ...base, replayedCalls: i + 1, reproduced: false, divergence: { at: call.id, field, recorded: call[field], replayed: replayed[field] } };
     }
     const after = world.snapshot();
     if (!same(after, recorded.worldAfter)) {
-      return { ...base, replayedCalls: recorded.calls.length, divergence: { at: "end", field: "worldAfter", recorded: recorded.worldAfter, replayed: after } };
+      return { ...base, replayedCalls: recorded.calls.length, reproduced: false, divergence: { at: "end", field: "worldAfter", recorded: recorded.worldAfter, replayed: after } };
     }
     const graded = gradeTrial({ ...recorded, calls: caller.calls, worldAfter: after }, world, scenario);
-    return { ...base, replayedCalls: recorded.calls.length, verdict: graded.verdict, rules: graded.findings.map((f) => f.rule) };
+    const rules = graded.findings.map((f) => f.rule);
+    return { ...base, replayedCalls: recorded.calls.length, verdict: graded.verdict, rules, reproduced: graded.verdict === trial.verdict && same(rules, base.recordedRules) };
   });
 
   return {
     scenarioId: report.scenarioId,
     agentId: report.agentId,
     trials,
-    reproduced: trials.every((t) => !t.divergence && t.verdict === t.recordedVerdict && same(t.rules, t.recordedRules)),
+    reproduced: trials.every((t) => t.reproduced),
   };
-}
-
-function same(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
 }

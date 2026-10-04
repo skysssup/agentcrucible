@@ -3,6 +3,7 @@ import { checkAnswer } from "./assertions.js";
 import { checkInvariants, chooseOutcome, describePattern, invariantFindings } from "./expect.js";
 import { formatCents, truncate } from "./format.js";
 import { evaluatePolicies } from "./policy.js";
+import { jsonType as shape, sameJson } from "./schema.js";
 import type { Budget, Effect, Evidence, Finding, GradedTrial, PolicySpec, ScenarioExpectations, ToolCallRecord, TrialOutcome, TrialTrace } from "./types.js";
 import { resolveFindings } from "./verdict.js";
 import { traceEffects } from "./worlds/index.js";
@@ -87,7 +88,7 @@ function checkExpectations(expect: ScenarioExpectations, trace: TrialTrace, worl
     status: met ? "met" : "not_met",
     summary: met
       ? [...(effects.length ? effects.map((e) => e.summary) : ["no state changes"]), ...passed].join("; ")
-      : [...stateGaps, ...answerGaps, ...ambiguous.map((r) => `${r.assertion}: ${r.detail}`), ...violations.map((v) => v.reason)].join("; "),
+      : [...stateGaps, ...answerGaps, ...ambiguous.map((r) => `${r.assertion}: ${r.detail}`), ...violations.map((v) => v.reason.replace(/\.$/, ""))].join("; "),
     path: match.outcome.name,
     assertions: answer.results,
   };
@@ -360,10 +361,6 @@ function wellFormed(call: ToolCallRecord, world: World): boolean {
   return call.committedResult === undefined || shape(call.observed.result) === shape(call.committedResult);
 }
 
-function shape(value: unknown): string {
-  return Array.isArray(value) ? "array" : value === null ? "null" : typeof value;
-}
-
 function effectEvidence(effect: Effect): Evidence {
   return { kind: "committed_change", summary: effect.summary, callIds: effect.callIds, details: { kind: effect.kind, id: effect.id, fields: effect.fields } };
 }
@@ -383,7 +380,7 @@ function observationEvidence(trace: TrialTrace): Evidence[] {
           ? { kind: "masked_commit", summary: `${c.id} ${c.tool}: agent saw error "${c.observed.error}", but the call committed${fault}`, callIds: [c.id] }
           : { kind: "failed_call", summary: `${c.id} ${c.tool}: agent saw error "${c.observed.error}"; nothing was executed${fault}`, callIds: [c.id] }
       );
-    } else if (c.schemaErrors?.length || (c.committedResult !== undefined && JSON.stringify(c.observed.result) !== JSON.stringify(c.committedResult))) {
+    } else if (c.schemaErrors?.length || (c.committedResult !== undefined && !sameJson(c.observed.result, c.committedResult))) {
       const world = c.committedResult === undefined ? "the call did not run" : `world returned ${truncate(JSON.stringify(c.committedResult), 100)}`;
       const malformed = Boolean(c.schemaErrors?.length) || (c.committedResult !== undefined && shape(c.observed.result) !== shape(c.committedResult));
       evidence.push({

@@ -1,6 +1,6 @@
 # Related work
 
-The five projects below were reviewed while reworking grading in 0.4.0. They are different kinds of tools: two agent benchmarks, an evaluation framework, a network fault injector, and a distributed-systems tester. The comparison is about design choices that carry over to AgentCrucible, not about which tool is better. AgentCrucible is much smaller than any of them. It is an offline harness with mock worlds and scripted fixtures, and it calls no model.
+The first five projects below were reviewed while reworking grading in 0.4.0: two agent benchmarks, an evaluation framework, a network fault injector, and a distributed-systems tester. The rest were reviewed for 0.5.0's multi-step scenarios, typed answer checks, extensions, replay, and baselines. The comparison is about design choices that carry over to AgentCrucible, not about which tool is better. AgentCrucible is much smaller than any of them. It is an offline harness with mock worlds and scripted fixtures, and it calls no model.
 
 Sources were read in October 2026.
 
@@ -101,3 +101,108 @@ Sources were read in October 2026.
 - **Unknown sits between failure and success.** The verdict order follows the same priority. Violations outrank `INCONCLUSIVE`, which outranks `SAFE_*`, and a run takes its worst trial.
 
 **Not adopted:** history checking against consistency models. AgentCrucible compares the end state with declared expectations and attributes each change to its calls, which is enough for single-agent tasks.
+
+## Model Context Protocol tools (0.5.0)
+
+**What it is:** the protocol many agents use to discover and call tools.
+
+**Sources:** [Tools, specification 2025-06-18](https://modelcontextprotocol.io/specification/2025-06-18/server/tools)
+
+**What it specifies:** a tool has an `inputSchema` and an optional `outputSchema`, both JSON Schema. When an output schema is present, "servers MUST provide structured results that conform to this schema" and "clients SHOULD validate structured results against this schema". Unknown tools and invalid arguments are protocol errors; failures inside a tool are reported in the result with `isError: true`. Servers must validate all tool inputs.
+
+**Lessons:**
+- **Describe tools with JSON Schema, in the same shape.** Adopted. Every built-in tool has `inputSchema` and `outputSchema`, and `ctx.tools` passes them to the agent unchanged, so a model-backed agent can hand them to a model's tool-calling API.
+- **Validate inputs at the boundary.** Adopted. Arguments that violate the input schema are rejected with `EARGS` before the world runs, separately from failures inside the world (`EWORLD`), much as MCP separates protocol errors from tool errors.
+- **Validate what the agent receives.** Adopted. Every observed result is checked against the tool's output schema. A violation is recorded with JSON paths, and a success claim based on a malformed response is unverified. A world whose own result violates its schema stops the run, since grading against it would mislead.
+
+**Not adopted:** the full JSON Schema vocabulary. AgentCrucible implements a subset and rejects any other keyword, so a schema never looks stricter than the check that runs.
+
+## Temporal: sagas and replay (0.5.0)
+
+**What it is:** a durable workflow engine.
+
+**Sources:**
+- [Saga pattern](https://docs.temporal.io/design-patterns/saga-pattern)
+- [Worker.runReplayHistory](https://typescript.temporal.io/api/classes/worker.Worker)
+- [Replay testing](https://docs.temporal.io/develop/safe-deployments)
+
+**What it does:** a saga registers a compensation for each step before running the step, and on failure runs the compensations in reverse order. Compensations "must be idempotent and able to handle cases where the forward Activity never executed", because a lost response leaves it unknown whether the step happened. Replay testing feeds recorded event histories to current workflow code; an incompatible change raises a `DeterminismViolationError`.
+
+**Lessons:**
+- **Grade the recovery, not only the end state.** Adopted. Invariants are checked after every call, so a duplicate refund that a later `void_refund` repairs is `DEGRADED`, distinct from a duplicate that remains (`HARMFUL_ACTION`) and from never creating one (`SAFE_SUCCESS`). `workflows/refund-notify-resolve` grades exactly this case.
+- **A recovery path is an outcome.** Adopted. Scenarios declare alternative outcomes, and a declared recovery path is `SAFE_FAILURE` when the answer reports it.
+- **Replay recorded histories to detect nondeterminism and drift.** Adopted. `replay` re-executes a report's tool calls against fresh worlds and reports the first call that diverges; a matching trial is graded again to show grading drift.
+
+## Hypothesis stateful testing (0.5.0)
+
+**What it is:** property-based testing for Python; its stateful mode generates sequences of operations.
+
+**Sources:** [Stateful tests](https://hypothesis.readthedocs.io/en/latest/stateful.html)
+
+**What it does:** "Often there are invariants that you want to ensure are met after every step in a process." An `@invariant()` runs after every rule, rather than as a rule that might run zero or several times. A failure prints the short sequence of steps that reproduces it.
+
+**Lessons:**
+- **Check invariants after every step.** Adopted. Scenario invariants run on the state before the first call and after every call.
+- **Say which step broke it.** Adopted. An invariant finding names the call after which it failed and, if it was repaired, the call after which it held again.
+
+**Not adopted:** generating call sequences and shrinking them. The agent chooses the calls; AgentCrucible schedules the faults.
+
+## Playwright Trace Viewer (0.5.0)
+
+**What it is:** the viewer for traces recorded by Playwright browser tests.
+
+**Sources:** [Trace viewer](https://playwright.dev/docs/trace-viewer)
+
+**What it does:** traces are saved after a run (for example on CI) and opened later. The viewer lists actions with before and after snapshots, highlights errors on the timeline, and "loads the trace entirely in your browser and does not transmit any data externally".
+
+**Lessons:**
+- **Save everything needed to inspect a failure after the fact.** Adopted. The JSON report holds every call with its arguments, observed and committed results, schema errors, and the state change it made; `inspect` prints any trial or call from it.
+- **A self-contained, offline viewer.** Adopted. The HTML report is one file with no external resources; it shows each call's state change, and every finding links to the calls it cites.
+
+## VCR.py (0.5.0)
+
+**What it is:** a Python library that records HTTP interactions to cassettes and replays them in tests.
+
+**Sources:** [Usage and record modes](https://vcrpy.readthedocs.io/en/latest/usage.html)
+
+**What it does:** in the `none` record mode it replays recorded interactions and raises an error for any new request, which "guarantees that no new HTTP requests will be made".
+
+**Lessons:**
+- **Replay strictly.** Adopted. `replay` issues exactly the recorded calls in the recorded order and treats any difference as a divergence; it never falls back to running the agent.
+
+## Jest snapshot testing (0.5.0)
+
+**What it is:** Jest's comparison of rendered output with a committed reference.
+
+**Sources:** [Snapshot testing](https://jestjs.io/docs/snapshot-testing)
+
+**What it does:** snapshot files are committed and reviewed with the code. They are regenerated only on request (`--updateSnapshot`), and the guidance warns against regenerating to make failures pass instead of examining them. Snapshots must be deterministic.
+
+**Lessons:**
+- **Commit the baseline and update it deliberately.** Adopted. A baseline is written only with `--save-baseline`, never by a failing run.
+- **Keep it reviewable.** Adopted. Baselines hold verdicts and deciding rules, sorted, with no timestamps, so changes diff cleanly in review.
+- **Compare like with like.** Adopted. An entry recorded with a different seed or trial count is reported as not comparable instead of compared.
+
+## promptfoo assertions (0.5.0)
+
+**What it is:** an LLM evaluation tool with typed assertions on model output.
+
+**Sources:** [Assertions and metrics](https://www.promptfoo.dev/docs/configuration/expected-outputs/)
+
+**What it does:** deterministic assertion types such as `equals`, `contains`, `icontains`, `regex`, and `is-json` (with optional JSON Schema validation), each negatable with `not-`.
+
+**Lessons:**
+- **Typed, declarative checks on the answer.** Adopted. `expect.answer` has `amount`, `id`, `text` (`contains`, `not_contains`, `matches`), `boolean`, and `output` (with a JSON Schema).
+- **Tie expected values to the run.** Adopted with a difference: expected values can come from the committed state (`id_of`, `exists`, `field`), so a check stays correct whichever outcome the run took and whatever ids the world generated.
+- **Do not pass what cannot be read.** A deliberate difference from a plain substring check: wording that can be read either way is `ambiguous` and the trial is `INCONCLUSIVE`, never a pass.
+
+## Toxiproxy custom toxics (0.5.0)
+
+**Sources:** [Creating custom toxics](https://github.com/Shopify/toxiproxy/blob/main/CREATING_TOXICS.md)
+
+**What it does:** custom toxics implement one interface and are registered by name; their configuration is JSON fields. Using them requires compiling a custom server binary.
+
+**Lessons:**
+- **Register faults by name, with typed configuration.** Adopted. An extension module's `faults` are registered by name, and each declares a JSON Schema for its `params`, which scenarios are checked against when they load.
+- **Do not require a rebuild.** Extensions are loaded at run time from the config file.
+

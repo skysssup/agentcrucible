@@ -22,7 +22,6 @@ export {
   builtinRegistry,
   extendRegistry,
   createWorlds,
-  getAgent,
   loadExtension,
   loadAgentModule,
   worldProblems,

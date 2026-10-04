@@ -1,5 +1,77 @@
 # Changelog
 
+## 0.5.0
+
+This release adds multi-step workflows across several worlds, typed answer checks, agents and extensions loaded from modules, saved-trace inspection and replay, an interactive HTML timeline, and baselines for CI. Verdicts for the scenarios and agents that existed in 0.4.0 are unchanged. The library, world, and report interfaces changed; see [Compatibility](#compatibility) for what to update.
+
+### Multi-step scenarios
+
+- **Composed worlds.** `worlds: [payments, email, tickets]` gives the agent the tools of several worlds at once. Tools and record kinds may not overlap.
+- **`setup`** adds records before every trial, such as an existing ticket. Every built-in world supports it, and generated ids never collide with seeded ones.
+- **Outcomes and recovery paths.** `expect.outcomes` lists acceptable end states. One with `verdict: SAFE_FAILURE` is a declared recovery path, graded `SAFE_FAILURE` (`grader.recovery_path`) when the answer reports the problem and `SILENT_FAILURE` (`expect.undisclosed_recovery`) when it does not. The grader compares a run with the matching outcome, or the closest one.
+- **Invariants** are checked on the state before the first call and after every call. `at_most` limits matching records; `when`/`requires` makes one record depend on another. A violation that lasts is `HARMFUL_ACTION` (`invariant.violated`); one that a later call repairs, such as a duplicate refund voided afterwards, is `DEGRADED` (`invariant.violated_then_restored`). Both name the calls involved.
+- **`expect.allow`** lists changes any outcome may include, such as a voided duplicate.
+- **Field matchers and references.** Record patterns accept `{ contains }`, `{ matches }`, and `{ one_of }`, and values computed from the committed state: `{ id_of }`, `{ exists }`, `{ count }`, `{ field, of }`. An email can be required to contain the id of the refund that actually committed.
+- **Budgets.** `budget.max_calls` and `budget.max_calls_per_tool` refuse calls past a limit with `EBUDGET`; the overrun is `budget.exceeded` (`DEGRADED`). An agent that keeps calling after 50 refusals, or past 1000 calls without a budget, is stopped with an error instead of hanging the run.
+- **Exact fault schedules.** `on_calls: [1, 3]` and `from_call: 2` join `on_call`, `on_call_range`, and `probability`.
+- **New tools:** `void_refund` (payments) and `update_ticket` (tickets, with a new `resolved` status). Refund records gained a `status` field (`succeeded` or `voided`).
+- **New scenarios and agents:** `workflows/refund-notify-resolve` (a refund whose response is lost, then an email and a ticket update) and `workflows/notification-outage` (every email rejected), graded against `workflow-naive`, `workflow-reconcile`, and `workflow-careful`.
+
+### Answers
+
+- **Typed answer checks** in `expect.answer`: `amount`, `id` (the answer names the id of a committed record; a made-up id is a false statement), `text` (`contains`, `not_contains`, `matches`), `boolean` (what the answer says yes or no to, compared with a literal or the committed state), and `output` (structured output checked against a JSON Schema and field values). The 0.4.0 form `answer: { amount_cents }` still works.
+- **Structured output.** An agent may return `{ text, output }`. An answer that is entirely JSON, or contains one fenced JSON block, also counts; two blocks are not guessed between.
+- **Ambiguity stays `INCONCLUSIVE`.** A yes/no statement that hedges or contradicts itself is `ambiguous`, and the trial is `INCONCLUSIVE` (`answer.ambiguous`), never a pass.
+- **New rules:** `answer.false_statement` (`SILENT_FAILURE`), `answer.forbidden_text`, `answer.output_invalid`, and `answer.incomplete` (`DEGRADED`). `trials[].outcome.assertions` records every check with its result and detail.
+- **Every finding carries evidence.** Findings that had none now cite the final answer.
+
+### Tool schemas
+
+- **Tools declare `inputSchema` and `outputSchema`** (a JSON Schema subset, in the shape MCP tool definitions use). Unsupported keywords are rejected rather than ignored.
+- **Arguments are validated before the world runs.** A violation returns `EARGS` with each problem and its JSON path, for example `$.amount_cents: must be at least 0 (got -1)`.
+- **Every observed result is validated against the tool's output schema.** Violations are recorded on the call (`schemaErrors`) and make a success claim based on that response unverified. A world whose own result violates its schema stops the run.
+
+### Agents and extensions
+
+- **`run --agent ./my-agent.mjs`** and `compare --agents a,./b.mjs` load an agent from a module: its default export, or `{ run, description }`. The config file's `agent` accepts a path too.
+- **Extensions.** The config file's new `extensions` key lists modules that export `worlds`, `faults`, and `agents`. Every entry is validated when loaded (names, tool schemas, record kinds, plain-JSON snapshots, fault stages and parameter schemas), and all problems are reported together with the module path.
+- **Custom fault kinds** declare a stage (`before` or `after` the call runs), a JSON Schema for their `params`, and an `apply` function. Their output is checked at run time.
+- **New `faults` command**; `agents` and `worlds` list extension entries with their source, and `worlds` shows each world's tools and record fields.
+- **`examples/agents/careful-refund.mjs`** (an agent module) and **`examples/inventory`** (a world, a `lost_write` fault, two agents, and a scenario composing the custom world with `email`).
+
+### Traces, replay, and baselines
+
+- **`agentcrucible inspect <report.json>`** prints a saved trial call by call; `--call` shows one call in full.
+- **`agentcrucible replay <report.json>`** re-executes the recorded tool calls against fresh worlds with the same seed, faults, and budget, without the agent. It names the first call that diverges, grades matching trials again, and exits 2 unless everything reproduces.
+- **The HTML report is an interactive timeline:** a section per trial, expandable calls with arguments, observed and committed results, schema errors, and state changes, and findings whose call ids link to the calls. It loads nothing from the network.
+- **`run --save-baseline <file>` and `run --baseline <file>`.** A baseline records each scenario and agent's verdict and deciding rules, without timestamps. With `--baseline`, the exit status is 2 only for regressions and new failing scenarios; a run with a different seed or trial count is reported as not comparable (exit 1). The comparison is also written to `baseline-comparison.json`.
+- **Each call records the state changes it made** (`changes`), so reports show what each step did rather than only the final state of each record.
+
+### Compatibility
+
+Library users and extension authors need these changes. Scenario files from 0.4.0 load unchanged.
+
+| 0.4.0 | 0.5.0 |
+|---|---|
+| `Scenario.world`, `RunReport.world` (a string) | `worlds` (a list) |
+| `WorldTool.parameters` | `inputSchema` (JSON Schema) and `outputSchema` |
+| `createWorld(name)`, `listWorlds()` | `createWorlds(registry, names)`, `builtinRegistry().worlds` |
+| `AGENTS`, `AGENT_DESCRIPTIONS`, `getAgent(id)` | `BUILTIN_AGENTS` (`{ run, description }`), or `builtinRegistry().agents` |
+| `gradeTrial(trace, world, policies, expect)` | `gradeTrial(trace, world, { policies, expect, budget })` |
+| `ScenarioExpectations.effects`, `answerAmountCents` | `outcomes`, `allow`, `invariants`, `answer` (normalized from the same YAML) |
+| `FaultKind` union, `decideFault`, `isPreCommitFault` | `kind: string`, `selectFault`, `BUILTIN_FAULTS[kind].stage` |
+| `ScriptedAgent` returns a string | a string or `{ text, output }` |
+| `World.invoke` validated its own arguments | arguments are validated by the harness; `invoke` receives valid ones |
+
+- **Reports** gained `reportVersion: 2`, `worlds`, and `faults` (the schedule the run used); calls gained `changes` and may have `schemaErrors` and `budgetExceeded`. `inspect` and `replay` read only version 2.
+- **Invalid arguments** now return `EARGS` instead of `EWORLD`, and are checked more strictly: `amount_cents` must be an integer, and a numeric string is no longer accepted.
+- **Effect summaries** of refunds include `status="succeeded"`, and summaries of changed records list only the fields that changed.
+- **`get_ticket`** returns `ticket_id` instead of `id`. Escalation comments no longer carry an `[idem:...]` marker; ticket idempotency keys are tracked outside the comments.
+- **A wrong amount stated in answer to a question** is now `answer.false_statement` instead of `expect.false_success_claim`. Both are `SILENT_FAILURE`.
+- **`policy.requireIdempotency`** applies only to tools whose input schema accepts `idempotency_key`.
+- **Config files** no longer reject an unknown `agent` name when they are parsed; the CLI checks it against the registered agents and module paths.
+- **`check` and the CLI tests** cover 18 scenarios and 9 scripted agents (73 expected verdicts).
+
 ## 0.4.0
 
 This release changes what the verdicts mean. A verdict from 0.4.0 is not comparable with a verdict from 0.3.0 for the same scenario and agent.

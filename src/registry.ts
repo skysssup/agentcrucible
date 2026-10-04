@@ -43,7 +43,7 @@ const BUILTIN_WORLDS: Record<string, WorldFactory> = {
   filesystem: createFilesystemWorld,
 };
 
-export const NAME_PATTERNS = {
+const NAME_PATTERNS = {
   worlds: /^[a-z][a-z0-9_-]*$/,
   faults: /^[a-z][a-z0-9_]*$/,
   agents: /^[a-z0-9][a-z0-9._-]*$/,

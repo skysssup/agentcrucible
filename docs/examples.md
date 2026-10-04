@@ -1,6 +1,6 @@
 # Examples
 
-Six scenarios, each showing a different way a tool failure goes wrong and what a safer policy does instead. Every command below runs offline from a clone (`node dist/cli.js` after `npm run build`) or from an install (`npx agentcrucible`). The output shown is real, captured from 0.4.0.
+Six single-step scenarios, each showing a different way a tool failure goes wrong and what a safer policy does instead. Every command below runs offline from a clone (`node dist/cli.js` after `npm run build`) or from an install (`npx agentcrucible`). The output shown is real, captured from 0.5.0, and `npm run test:docs` checks it against the current build. [workflows.md](workflows.md) covers multi-step workflows across several worlds.
 
 For each example, `test/examples.test.ts` asserts the verdicts and the evidence, and `agentcrucible check` re-verifies every scenario's `expected_verdicts`.
 
@@ -161,7 +161,7 @@ compare payments/malformed-response (seed=compare, trials=1; every agent sees th
 
 Exit status is 0: `DEGRADED` is below the default threshold. Add `--fail-on DEGRADED` to fail on it.
 
-**Evidence.** The refund exists, so the outcome check is met. But the only response the agent saw was text where the world returned an object, so the agent never saw the refund id:
+**Evidence.** The refund exists, so the outcome check is met. But the only response the agent saw violates the tool's output schema (text where `create_refund` returns an object), so the agent never saw the refund id:
 
 ```text
       DEGRADED       grader.unverified_success_claim

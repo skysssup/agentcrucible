@@ -1,4 +1,5 @@
 import type { Effect, Evidence, FieldMatcher, Finding, InvariantSpec, OutcomeSpec, RecordPattern, ScenarioExpectations, TrialTrace, ValueRef } from "./types.js";
+import { sameJson } from "./schema.js";
 import type { World, WorldRecord } from "./worlds/types.js";
 
 /** Values a reference takes in these records. id_of and field yield one value per matching record. */
@@ -117,7 +118,7 @@ export interface InvariantCheck {
   detail?: string;
 }
 
-/** Evaluates each invariant on the state before the first call and after every call, like a model checker's per-step assertion. */
+/** Evaluates each invariant on the state before the first call and after every call. */
 export function checkInvariants(invariants: InvariantSpec[], world: World, trace: TrialTrace): InvariantCheck[] {
   if (invariants.length === 0) return [];
   const states = [
@@ -178,8 +179,4 @@ export function invariantFindings(checks: InvariantCheck[]): Finding[] {
             evidence: [evidence],
           };
     });
-}
-
-function sameJson(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
 }

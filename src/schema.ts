@@ -1,3 +1,5 @@
+import { truncate } from "./format.js";
+
 /**
  * A subset of JSON Schema for tool inputs, tool outputs, and structured answers. Schemas use
  * the same keywords as MCP tool definitions (`inputSchema`, `outputSchema`), so a tool can be
@@ -160,22 +162,24 @@ function hasType(value: unknown, type: JsonType): boolean {
   }
 }
 
+/** "array", "null", or the typeof name: the JSON type of a value as a person would name it. */
+export function jsonType(value: unknown): string {
+  return Array.isArray(value) ? "array" : value === null ? "null" : typeof value;
+}
+
+/** Equality of the JSON encodings, so key order matters as it does in a saved trace. */
+export function sameJson(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 function describeType(value: unknown): string {
-  if (value === null) return "null";
-  if (Array.isArray(value)) return "array";
-  if (typeof value === "string") return `string ${truncateJson(value)}`;
-  return typeof value;
+  return typeof value === "string" ? `string ${truncateJson(value)}` : jsonType(value);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function sameJson(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
-
 function truncateJson(value: unknown): string {
-  const text = JSON.stringify(value) ?? String(value);
-  return text.length > 40 ? `${text.slice(0, 39)}…` : text;
+  return truncate(JSON.stringify(value) ?? String(value), 40);
 }
