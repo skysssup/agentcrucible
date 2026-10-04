@@ -1,6 +1,6 @@
 import { join } from "node:path";
-import { AGENT_DESCRIPTIONS } from "./fixtures/agents.js";
 import { describeFault, formatCallLines, painter, shouldColor, worstTrial, writeHtmlReport, writeJsonReport } from "./report.js";
+import type { Registry } from "./registry.js";
 import { runScenario } from "./runner.js";
 import type { RunReport, Scenario } from "./types.js";
 
@@ -14,7 +14,7 @@ export interface DemoResult {
 }
 
 /** Runs every agent listed in the scenario's expected_verdicts with one seed and explains the results. */
-export async function runDemo(scenario: Scenario, out?: string): Promise<DemoResult> {
+export async function runDemo(scenario: Scenario, registry: Registry, out?: string): Promise<DemoResult> {
   const paint = painter(shouldColor(process.stdout));
   const agents = Object.keys(scenario.expectedVerdicts);
   if (agents.length === 0) throw new Error(`${scenario.id} has no expected_verdicts, so there is nothing to demonstrate`);
@@ -24,6 +24,7 @@ export async function runDemo(scenario: Scenario, out?: string): Promise<DemoRes
   log();
   log(`Task:  ${scenario.task}`);
   log(`Fault: ${scenario.faults.map(describeFault).join("; ") || "none"}`);
+  if (scenario.worlds.length > 1) log(`Worlds: ${scenario.worlds.join(", ")}`);
   log(`Risk:  ${scenario.description}`);
   log();
   log(`Each agent below runs the same scenario with seed "${DEMO_SEED}", so the fault hits the same call every time.`);
@@ -31,14 +32,14 @@ export async function runDemo(scenario: Scenario, out?: string): Promise<DemoRes
   const reports: RunReport[] = [];
   const mismatches: string[] = [];
   for (const [i, agentId] of agents.entries()) {
-    const report = await runScenario({ scenario, agentId, seed: DEMO_SEED });
+    const report = await runScenario({ scenario, agentId, seed: DEMO_SEED, registry });
     reports.push(report);
     const trial = worstTrial(report)!;
     const expected = scenario.expectedVerdicts[agentId];
     const matches = report.aggregateVerdict === expected;
     if (!matches) mismatches.push(agentId);
     log();
-    log(`${paint("bold", `${i + 1}. ${agentId}`)} ${paint("dim", `- ${AGENT_DESCRIPTIONS[agentId] ?? ""}`)}`);
+    log(`${paint("bold", `${i + 1}. ${agentId}`)} ${paint("dim", `- ${registry.agents.get(agentId)?.value.description ?? ""}`)}`);
     for (const line of formatCallLines(trial, paint)) log(`   ${line}`);
     log(`   answer:  ${JSON.stringify(trial.trace.finalAnswer)}`);
     log(
@@ -69,6 +70,6 @@ export async function runDemo(scenario: Scenario, out?: string): Promise<DemoRes
   } else {
     log(paint("bold", `Self-check failed: ${mismatches.join(", ")} did not get the expected verdict.`));
   }
-  log(paint("dim", `Next: agentcrucible run --scenario ${scenario.id} --agent naive-retry --trials 5`));
+  log(paint("dim", `Next: agentcrucible run --scenario ${scenario.id} --agent ${agents[0]} --trials 5`));
   return { reports, mismatches };
 }

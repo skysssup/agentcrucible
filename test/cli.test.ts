@@ -181,7 +181,7 @@ describe("usage and input errors", () => {
     ['{"trials": 0}', /\.agentcrucible\.json: Invalid trials value: 0/],
     ['{"trials": "2"}', /trials must be a number/],
     ['{"trial": 2}', /unknown key "trial" \(expected one of: agent, trials/],
-    ['{"agent": "robot"}', /agent "robot" is not a scripted agent/],
+    ['{"agent": "robot"}', /config agent "robot" is not a registered agent/],
     ['{"failOn": "SOMETIMES"}', /failOn must be one of/],
     ['{"scenarioDirs": "dir"}', /scenarioDirs must be a list of directory paths/],
     ['{"trials": ', /\.agentcrucible\.json: cannot parse/],
@@ -273,7 +273,7 @@ describe("check, demo, and informational commands", () => {
   it("check confirms every expected verdict and fault", () => {
     const result = runCli(["check"]);
     expect(result.status, result.stdout).toBe(0);
-    expect(result.stdout).toMatch(/^67\/67 checks pass \(trials=5, default seeds\)$/m);
+    expect(result.stdout).toMatch(/^73\/73 checks pass \(trials=5, default seeds\)$/m);
   });
 
   it("check fails when a fault never fires or a verdict differs", () => {
@@ -332,9 +332,12 @@ describe("check, demo, and informational commands", () => {
     const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
     expect(runCli(["--version"]).stdout.trim()).toBe(`agentcrucible ${pkg.version}`);
     expect(runCli(["agents"]).stdout.split("\n").filter(Boolean).map((l) => l.split(/\s+/)[0])).toEqual([
-      "naive-retry", "idempotent-retry", "honest-stop", "liar", "gullible-reader", "cross-checker",
+      "naive-retry", "idempotent-retry", "honest-stop", "liar", "gullible-reader", "cross-checker", "workflow-naive", "workflow-reconcile", "workflow-careful",
     ]);
-    expect(runCli(["worlds"]).stdout.trim().split("\n")).toEqual(["payments", "database", "email", "tickets", "filesystem"]);
+    const worlds = runCli(["worlds"]).stdout;
+    expect(worlds.split("\n").filter((l) => /^\w/.test(l)).map((l) => l.split(":")[0])).toEqual(["payments", "database", "email", "tickets", "filesystem"]);
+    expect(worlds).toContain("tools: create_refund*, void_refund*, get_refund, list_refunds");
+    expect(runCli(["faults"]).stdout).toMatch(/^timeout_after_commit\s+after\s+the call commits, then the agent sees ETIMEDOUT$/m);
     const cwd = tempDir();
     expect(runCli(["config"], { cwd }).stdout).toContain("No config file found");
     writeFileSync(join(cwd, ".agentcrucible.yml"), "agent: liar\n");

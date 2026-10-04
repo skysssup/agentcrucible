@@ -2,7 +2,7 @@
 // Packs the package (or takes --tarball <file>), installs it into an empty project outside
 // the checkout, and exercises the installed CLI, library, and type declarations.
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,7 +38,8 @@ try {
     check(`tarball includes ${required}`, listing.includes(required));
   }
   const bundled = listing.filter((f) => f.startsWith("scenarios/")).length;
-  check(`tarball includes the ${bundled} bundled scenarios`, bundled === 16);
+  const inRepo = readdirSync(join(root, "scenarios"), { recursive: true }).filter((f) => String(f).endsWith(".yaml")).length;
+  check(`tarball includes all ${inRepo} bundled scenarios`, bundled === inRepo, `${bundled} in the tarball`);
 
   const consumer = join(work, "consumer");
   mkdirSync(consumer);
@@ -57,12 +58,15 @@ try {
   const version = cli("--version");
   check("agentcrucible --version", version.status === 0 && version.stdout.trim() === `agentcrucible ${pkg.version}`, version.stdout + version.stderr);
   const list = cli("list");
-  check("agentcrucible list finds the bundled scenarios", list.status === 0 && list.stdout.includes("16 scenario(s)"), list.stdout.slice(-200) + list.stderr);
+  check("agentcrucible list finds the bundled scenarios", list.status === 0 && list.stdout.includes(`${inRepo} scenario(s)`), list.stdout.slice(-200) + list.stderr);
   const demo = cli("demo");
-  check("agentcrucible demo exits 0 and matches every expected verdict", demo.status === 0 && (demo.stdout.match(/\(expected\)/g) ?? []).length === 5, demo.stderr || demo.stdout.slice(-300));
+  check("agentcrucible demo exits 0 and matches every expected verdict", demo.status === 0 && demo.stdout.includes("Every verdict matches the scenario's expected_verdicts."), demo.stderr || demo.stdout.slice(-300));
   check("agentcrucible demo writes no files", !existsSync(join(consumer, ".agentcrucible")));
+  const workflow = cli("demo", "--scenario", "workflows/notification-outage");
+  check("the multi-world workflow demo runs from the tarball", workflow.status === 0 && workflow.stdout.includes("workflow-careful    SAFE_FAILURE"), workflow.stderr || workflow.stdout.slice(-300));
   const checkCmd = cli("check");
-  check("agentcrucible check passes", checkCmd.status === 0 && /67\/67 checks pass/.test(checkCmd.stdout), checkCmd.stdout.slice(-300) + checkCmd.stderr);
+  const tally = /^(\d+)\/(\d+) checks pass/m.exec(checkCmd.stdout);
+  check("agentcrucible check passes", checkCmd.status === 0 && tally !== null && tally[1] === tally[2] && Number(tally[1]) > 0, checkCmd.stdout.slice(-300) + checkCmd.stderr);
   const runCmd = cli("run", "--scenario", "payments/timeout-after-commit", "--agent", "naive-retry", "--json", "--out", "reports");
   let report;
   try {

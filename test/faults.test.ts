@@ -1,14 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { decideFault, isPreCommitFault, resolveOnCall, shouldApplyFault } from "../src/faults.js";
+import { BUILTIN_FAULTS, describeSchedule, resolveOnCall, selectFault, shouldApplyFault } from "../src/faults.js";
 import { pickInRange, unitRandom } from "../src/hash.js";
 import { runHarness } from "../src/harness.js";
-import { FAULT_KINDS, type FaultKind, type FaultSpec } from "../src/types.js";
-import { createWorld } from "../src/worlds/index.js";
+import { FAULT_KINDS, type FaultSpec } from "../src/types.js";
+import { createWorld } from "./helpers.js";
+
+function decideFault(specs: FaultSpec[], tool: string, callIndex: number, seed: string, trialIndex: number) {
+  const index = selectFault(specs, tool, callIndex, seed, trialIndex);
+  return index === -1 ? { apply: false } : { apply: true, kind: specs[index].kind, index };
+}
+
+const observe = (kind: string, result: unknown, params: Record<string, unknown> = {}) => BUILTIN_FAULTS[kind].apply({ tool: "t", args: {}, result, params });
 
 describe("fault selection", () => {
   it("applies timeout_after_commit on the targeted call", () => {
     const d = decideFault([{ target: "create_refund", kind: "timeout_after_commit", onCall: 1 }], "create_refund", 1, "seed", 0);
-    expect(d).toMatchObject({ apply: true, kind: "timeout_after_commit", index: 0, maskAsError: { code: "ETIMEDOUT" } });
+    expect(d).toMatchObject({ apply: true, kind: "timeout_after_commit", index: 0 });
+    expect(observe("timeout_after_commit", { refund_id: "re_1" })).toMatchObject({ ok: false, code: "ETIMEDOUT" });
   });
 
   it("skips other call indices and other tools", () => {
@@ -54,22 +62,37 @@ describe("fault selection", () => {
   });
 
   it("changes amounts for silent_wrong_data", () => {
-    const d = decideFault([{ target: "create_refund", kind: "silent_wrong_data", onCall: 1, params: { field: "amount_cents", delta: -50 } }], "create_refund", 1, "s", 0);
-    expect(d.mutateResult?.({ amount_cents: 8400, refund_id: "re" })).toEqual({ amount_cents: 8350, refund_id: "re" });
-    expect(d.mutateResult?.({ refund_id: "re" })).toEqual({ refund_id: "re" });
+    const params = { field: "amount_cents", delta: -50 };
+    expect(observe("silent_wrong_data", { amount_cents: 8400, refund_id: "re" }, params)).toEqual({ ok: true, result: { amount_cents: 8350, refund_id: "re" } });
+    expect(observe("silent_wrong_data", { refund_id: "re" }, params)).toEqual({ ok: true, result: { refund_id: "re" } });
   });
 
   it("returns a stale value without marking it", () => {
-    const d = decideFault([{ target: "get_balance", kind: "stale_cache", params: { stale_value: 5 } }], "get_balance", 1, "s", 0);
-    expect(d.mutateResult?.({ account_id: "acct_1", balance_cents: 10000 })).toEqual({ account_id: "acct_1", balance_cents: 5 });
+    expect(observe("stale_cache", { account_id: "acct_1", balance_cents: 10000 }, { stale_value: 5 })).toEqual({ ok: true, result: { account_id: "acct_1", balance_cents: 5 } });
+  });
+
+  it("faults exactly the listed calls with on_calls, and every call from from_call on", () => {
+    const listed: FaultSpec = { target: "send_email", kind: "rate_limit_429", onCalls: [1, 3] };
+    const from: FaultSpec = { target: "send_email", kind: "rate_limit_429", fromCall: 2 };
+    const fired = (spec: FaultSpec) => [1, 2, 3, 4].filter((call) => shouldApplyFault(spec, "send_email", call, "seed", 0));
+    expect(fired(listed)).toEqual([1, 3]);
+    expect(fired(from)).toEqual([2, 3, 4]);
+    expect(fired({ ...from, probability: 0 })).toEqual([]);
+    expect([listed, from, { target: "x", kind: "timeout" }, { target: "x", kind: "timeout", onCallRange: [1, 3] }].map((s) => describeSchedule(s as FaultSpec))).toEqual([
+      "calls 1, 3",
+      "calls 2 and later",
+      "every call",
+      "one call in 1-3 (seeded)",
+    ]);
   });
 });
 
 describe("fault timing against world state", () => {
-  const postCommit: FaultKind[] = ["timeout_after_commit", "malformed_response", "silent_wrong_data", "stale_cache", "schema_drift"];
+  const postCommit: string[] = ["timeout_after_commit", "malformed_response", "silent_wrong_data", "stale_cache", "schema_drift"];
 
   it("classifies every fault kind", () => {
-    expect(FAULT_KINDS.filter((k) => !isPreCommitFault(k)).sort()).toEqual([...postCommit].sort());
+    expect(Object.keys(BUILTIN_FAULTS).sort()).toEqual([...FAULT_KINDS].sort());
+    expect(FAULT_KINDS.filter((k) => BUILTIN_FAULTS[k].stage === "after").sort()).toEqual([...postCommit].sort());
   });
 
   it.each(FAULT_KINDS.map((kind) => [kind]))("%s fires at the documented point relative to the commit", async (kind) => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { evaluatePolicies } from "../src/policy.js";
 import type { ToolCallRecord, TrialTrace } from "../src/types.js";
-import { createWorld } from "../src/worlds/index.js";
+import { createWorld } from "./helpers.js";
 
 function call(over: Partial<ToolCallRecord> & Pick<ToolCallRecord, "id" | "tool">): ToolCallRecord {
   return {
@@ -12,6 +12,7 @@ function call(over: Partial<ToolCallRecord> & Pick<ToolCallRecord, "id" | "tool"
     observed: { ok: true, result: {} },
     committed: true,
     committedResult: { deduplicated: false },
+    changes: [],
     worldSnapshotAfter: {},
     ...over,
   };

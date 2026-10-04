@@ -1,4 +1,4 @@
-import { readIdempotencyKey, type World, type WorldTool } from "./types.js";
+import { IDEMPOTENCY_KEY, objectSchema, readIdempotencyKey, seedField, type World, type WorldTool } from "./types.js";
 
 export interface FsFile {
   path: string;
@@ -17,14 +17,10 @@ function normalizePath(raw: unknown): string {
 
 /** Only relative paths inside the workspace are allowed. */
 function escapesWorkspace(path: string): boolean {
-  return (
-    path.includes("\0") ||
-    path.startsWith("/") ||
-    path.startsWith("~") ||
-    /^[a-zA-Z]:/.test(path) ||
-    path.split("/").includes("..")
-  );
+  return path.includes("\0") || path.startsWith("/") || path.startsWith("~") || /^[a-zA-Z]:/.test(path) || path.split("/").includes("..");
 }
+
+const PATH = { type: "string" as const, minLength: 1, pattern: "\\S", description: "Relative workspace path" };
 
 export function createFilesystemWorld(): World {
   let state: FsState = { files: [] };
@@ -34,25 +30,28 @@ export function createFilesystemWorld(): World {
       name: "write_file",
       description: "Write content to a path under the workspace. Rejects paths outside it.",
       mutating: true,
-      parameters: {
-        path: { type: "string", description: "Relative workspace path", required: true },
-        content: { type: "string", description: "File contents", required: true },
-        idempotency_key: { type: "string", description: "Optional idempotency key" },
-      },
+      inputSchema: objectSchema({ path: PATH, content: { type: "string", description: "File contents" }, idempotency_key: IDEMPOTENCY_KEY }, ["path", "content"]),
+      outputSchema: objectSchema(
+        { path: { type: "string" }, bytes: { type: "integer" }, deduplicated: { type: "boolean" }, overwritten: { type: "boolean" } },
+        ["path", "bytes", "deduplicated", "overwritten"]
+      ),
     },
     {
       name: "read_file",
-      description: "Read a file previously written in this workspace.",
+      description: "Read a file in this workspace.",
       mutating: false,
-      parameters: {
-        path: { type: "string", description: "Relative workspace path", required: true },
-      },
+      inputSchema: objectSchema({ path: PATH }, ["path"]),
+      outputSchema: objectSchema({ path: { type: "string" }, content: { type: "string" } }, ["path", "content"]),
     },
     {
       name: "list_files",
       description: "List files in the workspace.",
       mutating: false,
-      parameters: {},
+      inputSchema: objectSchema({}),
+      outputSchema: {
+        type: "array",
+        items: objectSchema({ path: { type: "string" }, bytes: { type: "integer" }, overwritten: { type: "boolean" } }, ["path", "bytes", "overwritten"]),
+      },
     },
   ];
 
@@ -66,27 +65,24 @@ export function createFilesystemWorld(): World {
     reset() {
       state = { files: [] };
     },
+    seed(records) {
+      for (const r of records) {
+        const path = normalizePath(r.id);
+        if (escapesWorkspace(path)) throw new Error(`setup file ${r.id} is outside the workspace`);
+        state.files.push({ path, content: seedField(r, "content", "string"), overwritten: false });
+      }
+    },
     snapshot() {
       return structuredClone(state) as unknown as Record<string, unknown>;
     },
     invoke(tool, args) {
       if (tool === "write_file") {
         const path = normalizePath(args.path);
-        const content = String(args.content ?? "");
-        const idempotencyKey = readIdempotencyKey(tool, args);
-        if (!path) throw new Error("write_file requires path");
+        const content = String(args.content);
+        const idempotencyKey = readIdempotencyKey(args);
         if (escapesWorkspace(path)) throw new Error(`EACCES: path escapes workspace: ${path}`);
-        const existing = idempotencyKey
-          ? state.files.find((f) => f.idempotencyKey === idempotencyKey)
-          : undefined;
-        if (existing) {
-          return {
-            path: existing.path,
-            bytes: existing.content.length,
-            deduplicated: true,
-            overwritten: existing.overwritten,
-          };
-        }
+        const existing = idempotencyKey ? state.files.find((f) => f.idempotencyKey === idempotencyKey) : undefined;
+        if (existing) return { path: existing.path, bytes: existing.content.length, deduplicated: true, overwritten: existing.overwritten };
         const prior = state.files.find((f) => f.path === path);
         if (prior) {
           prior.content = content;
@@ -105,24 +101,15 @@ export function createFilesystemWorld(): World {
         return { path: file.path, content: file.content };
       }
       if (tool === "list_files") {
-        return state.files.map((f) => ({
-          path: f.path,
-          bytes: f.content.length,
-          overwritten: f.overwritten,
-        }));
+        return state.files.map((f) => ({ path: f.path, bytes: f.content.length, overwritten: f.overwritten }));
       }
       throw new Error(`unknown tool: ${tool}`);
     },
     records(snapshot) {
-      const files = (snapshot as unknown as FsState).files ?? [];
-      return files.map((f) => ({
+      return ((snapshot as unknown as FsState).files ?? []).map((f) => ({
         kind: "file",
         id: f.path,
-        fields: {
-          path: f.path,
-          content: f.content,
-          ...(f.idempotencyKey ? { idempotency_key: f.idempotencyKey } : {}),
-        },
+        fields: { path: f.path, content: f.content, ...(f.idempotencyKey ? { idempotency_key: f.idempotencyKey } : {}) },
       }));
     },
   };

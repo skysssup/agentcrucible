@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { runScenario } from "../src/runner.js";
 import { findScenarios } from "../src/scenarios.js";
+import { createToolCaller } from "../src/harness.js";
 import { createFilesystemWorld } from "../src/worlds/filesystem.js";
 
 describe("filesystem world", () => {
@@ -31,10 +32,12 @@ describe("filesystem world", () => {
     expect(world.invoke("write_file", { path: "release..notes/v1.2.md", content: "x" })).toMatchObject({ path: "release..notes/v1.2.md" });
   });
 
-  it("rejects a blank idempotency key", () => {
+  it("rejects a blank idempotency key before the world sees it", () => {
     const world = createFilesystemWorld();
     world.reset();
-    expect(() => world.invoke("write_file", { path: "a.md", content: "x", idempotency_key: "  " })).toThrow(/idempotency_key must be non-empty/);
+    const call = createToolCaller({ world, faults: [], seed: "s", trialIndex: 0 }).call("write_file", { path: "a.md", content: "x", idempotency_key: "  " });
+    expect(call.observed).toMatchObject({ ok: false, code: "EARGS", error: "invalid arguments for write_file: $.idempotency_key: must match /\\S/" });
+    expect(world.snapshot()).toEqual({ files: [] });
   });
 
   it("naive-retry writes twice after a lost response; the content is identical but the budget is exceeded", async () => {

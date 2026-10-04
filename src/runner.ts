@@ -1,10 +1,9 @@
-import { getAgent } from "./fixtures/agents.js";
 import { gradeTrial } from "./grader.js";
 import { runHarness, type ScriptedAgent } from "./harness.js";
+import { builtinRegistry, createWorlds, faultDefinitions, getAgent, type Registry } from "./registry.js";
 import { aggregateVerdict, computeStats } from "./stats.js";
-import type { GradedTrial, RunReport, Scenario } from "./types.js";
+import { REPORT_VERSION, type FaultSpec, type GradedTrial, type RunReport, type Scenario } from "./types.js";
 import { VERSION } from "./version.js";
-import { createWorld } from "./worlds/index.js";
 
 export const MAX_TRIALS = 10_000;
 
@@ -19,7 +18,7 @@ export function parseTrials(raw: unknown): number {
 
 export interface RunOptions {
   scenario: Scenario;
-  /** A built-in scripted agent id, or the label for `agent`. */
+  /** A registered agent id, or the label for `agent`. */
   agentId?: string;
   /** Your own agent function. When given, `agentId` is only a label (default "custom"). */
   agent?: ScriptedAgent;
@@ -28,47 +27,64 @@ export interface RunOptions {
   trials?: number;
   /** Replaces every fault's call selection with one seeded call index in this range per trial. */
   fuzzCallRange?: [number, number];
+  /** Worlds, fault kinds, and agents to use. Defaults to the built-ins; pass the registry the scenario was loaded with. */
+  registry?: Registry;
 }
 
 export async function runScenario(opts: RunOptions): Promise<RunReport> {
   const { scenario } = opts;
+  const registry = opts.registry ?? builtinRegistry();
   const seed = opts.seed ?? `seed-${scenario.id}`;
   const trialCount = parseTrials(opts.trials ?? 1);
   const range = opts.fuzzCallRange;
   if (range && !(range.length === 2 && range.every((n) => Number.isSafeInteger(n) && n >= 1) && range[0] <= range[1])) {
     throw new Error(`Invalid fuzz call range ${JSON.stringify(range)} (expected [low, high] with positive integers and low <= high)`);
   }
-  if (!opts.agent && !opts.agentId) throw new Error("runScenario needs agentId (a scripted agent) or agent (your own function)");
+  if (!opts.agent && !opts.agentId) throw new Error("runScenario needs agentId (a registered agent) or agent (your own function)");
   const agentId = opts.agentId ?? "custom";
-  const agent = opts.agent ?? getAgent(agentId);
-  const faults = range
-    ? scenario.faults.map(({ onCall: _onCall, ...f }) => ({ ...f, onCallRange: range }))
+  const agent = opts.agent ?? getAgent(registry, agentId).run;
+  const faults: FaultSpec[] = range
+    ? scenario.faults.map(({ onCall: _a, onCalls: _b, fromCall: _c, onCallRange: _d, ...f }) => ({ ...f, onCallRange: range }))
     : scenario.faults;
-  const world = createWorld(scenario.world);
+  const world = createWorlds(registry, scenario.worlds);
+  const faultKinds = faultDefinitions(registry);
   const startedAt = new Date();
   const trials: GradedTrial[] = [];
 
   for (let i = 0; i < trialCount; i++) {
     let trace;
     try {
-      trace = await runHarness({ scenarioId: scenario.id, task: scenario.task, seed, trialIndex: i, agentId, faults, world, agent });
+      trace = await runHarness({
+        scenarioId: scenario.id,
+        task: scenario.task,
+        seed,
+        trialIndex: i,
+        agentId,
+        faults,
+        faultKinds,
+        budget: scenario.budget,
+        setup: scenario.setup,
+        world,
+        agent,
+      });
     } catch (err) {
       throw new Error(`Agent "${agentId}" failed in trial ${i} of ${scenario.id}: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
     }
-    trials.push(gradeTrial(trace, world, scenario.policies, scenario.expect));
+    trials.push(gradeTrial(trace, world, scenario));
   }
 
   const finishedAt = new Date();
-  const stats = computeStats(trials);
   return {
+    reportVersion: REPORT_VERSION,
     toolVersion: VERSION,
     scenarioId: scenario.id,
-    world: scenario.world,
+    worlds: scenario.worlds,
     agentId,
     seed,
     scenario,
+    faults,
     trials,
-    stats,
+    stats: computeStats(trials),
     aggregateVerdict: aggregateVerdict(trials),
     warnings: runWarnings(scenario, faults, trials),
     startedAt: startedAt.toISOString(),
@@ -77,7 +93,7 @@ export async function runScenario(opts: RunOptions): Promise<RunReport> {
   };
 }
 
-function runWarnings(scenario: Scenario, faults: Scenario["faults"], trials: GradedTrial[]): string[] {
+function runWarnings(scenario: Scenario, faults: FaultSpec[], trials: GradedTrial[]): string[] {
   const warnings: string[] = [];
   if (!scenario.expect) {
     warnings.push("The scenario declares no expectations, so task completion was not checked and no trial can be SAFE_SUCCESS.");

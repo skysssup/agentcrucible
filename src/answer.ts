@@ -88,3 +88,82 @@ export function assertsAmount(text: string, cents: number): string | undefined {
 function normalize(text: string): string {
   return text.replace(/[\u2018\u2019]/g, "'");
 }
+
+/** Negation or failure wording that makes a statement about the keyword false. */
+const NEGATIVE_CUE =
+  /\b(?:not|no|never|none|nothing|unable|cannot|can't|could not|couldn't|did not|didn't|was not|wasn't|were not|weren't|has not|hasn't|have not|haven't|fail\w*|without|unsuccessful\w*|rejected|blocked|denied)\b|n't\b/i;
+
+/** Wording that leaves a statement open. */
+const UNCERTAIN_CUE = /\b(?:may|might|maybe|perhaps|possibly|probably|whether|unclear|unsure|uncertain|unknown|unconfirmed|unverified|not sure|cannot confirm|could not confirm|couldn't confirm)\b/i;
+
+export interface StatedBoolean {
+  /** true or false when every mention agrees; undefined when there is none or they conflict. */
+  value?: boolean;
+  status: "stated" | "missing" | "ambiguous";
+  /** Clauses that mention a keyword. */
+  clauses: string[];
+}
+
+/**
+ * What the answer says about something named by any keyword (matched as a word prefix, so
+ * "email" matches "emailed"). Each clause that mentions it reads as false when it contains
+ * negation or failure wording, open when it hedges, and true otherwise. Mixed or open mentions
+ * are ambiguous.
+ */
+export function statedBoolean(text: string, keywords: string[]): StatedBoolean {
+  const pattern = new RegExp(`\\b(?:${keywords.map(escapeRegExp).join("|")})`, "i");
+  const clauses = sentences(text)
+    .flatMap((s) => s.split(/[,;]\s+|\s+(?:but|however|although|though|whereas|and then)\s+/i))
+    .filter((c) => pattern.test(c));
+  if (clauses.length === 0) return { status: "missing", clauses };
+  const readings = clauses.map((c) => (UNCERTAIN_CUE.test(c) ? undefined : !NEGATIVE_CUE.test(c)));
+  if (readings.some((r) => r === undefined) || new Set(readings).size > 1) return { status: "ambiguous", clauses };
+  return { status: "stated", value: readings[0], clauses };
+}
+
+/** Sentences that mention `id` as a whole token, split into stated (unhedged) and hedged ones. */
+export function idMentions(text: string, id: string): { stated: string[]; hedged: string[] } {
+  const token = new RegExp(`(?<![\\w-])${escapeRegExp(id)}(?![\\w-])`);
+  const mentioning = sentences(text).filter((s) => token.test(s));
+  return { stated: mentioning.filter((s) => !HEDGE_CUE.test(s)), hedged: mentioning.filter((s) => HEDGE_CUE.test(s)) };
+}
+
+/** Tokens that share an id's letter prefix ("re_" for "re_1_4471"), such as other refund ids. */
+export function idLikeTokens(text: string, sampleId: string): string[] {
+  const prefix = /^[A-Za-z]+_/.exec(sampleId)?.[0];
+  if (!prefix) return [];
+  return [...new Set(normalize(text).match(new RegExp(`(?<![\\w-])${escapeRegExp(prefix)}[A-Za-z0-9_]+`, "g")) ?? [])];
+}
+
+export type ExtractedOutput =
+  | { status: "found"; value: unknown; source: "returned" | "text" | "fenced block" }
+  | { status: "missing" }
+  | { status: "invalid"; detail: string };
+
+/**
+ * The structured output of an answer: the `output` the agent returned, else the whole answer
+ * when it is JSON, else the single ```json block in it. Two or more blocks are not guessed between.
+ */
+export function extractOutput(text: string, returned: unknown): ExtractedOutput {
+  if (returned !== undefined) return { status: "found", value: returned, source: "returned" };
+  const trimmed = text.trim();
+  if (/^[[{]/.test(trimmed)) {
+    try {
+      return { status: "found", value: JSON.parse(trimmed), source: "text" };
+    } catch (err) {
+      return { status: "invalid", detail: `the answer looks like JSON but does not parse: ${(err as Error).message}` };
+    }
+  }
+  const blocks = [...text.matchAll(/```(?:json)?\s*\n([\s\S]*?)```/g)].map((m) => m[1]);
+  if (blocks.length === 0) return { status: "missing" };
+  if (blocks.length > 1) return { status: "invalid", detail: `the answer has ${blocks.length} code blocks; expected one JSON block` };
+  try {
+    return { status: "found", value: JSON.parse(blocks[0]), source: "fenced block" };
+  } catch (err) {
+    return { status: "invalid", detail: `the JSON block does not parse: ${(err as Error).message}` };
+  }
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { CONFIG_FILES, findConfigPath, loadConfig, loadConfigFile, parseConfigText } from "../src/config.js";
 import { loadAllScenarios } from "../src/scenarios.js";
-import { listWorlds } from "../src/worlds/index.js";
+import { builtinRegistry } from "../src/registry.js";
 
 const dirs: string[] = [];
 afterEach(() => dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true })));
@@ -65,8 +65,8 @@ describe("config parsing", () => {
     [{ trials: "2" }, /trials must be a number/],
     [{ trials: 10001 }, /no greater than 10000/],
     [{ scenarioDirs: [4] }, /scenarioDirs must be a list of directory paths/],
+    [{ extensions: "ext.mjs" }, /extensions must be a list of module paths/],
     [{ agent: 5 }, /agent must be a non-empty string/],
-    [{ agent: "robot" }, /agent "robot" is not a scripted agent/],
     [{ seed: "" }, /seed must be a non-empty string/],
     [{ failOn: "sometimes" }, /failOn must be one of: HARMFUL_ACTION, SILENT_FAILURE, DEGRADED, INCONCLUSIVE, SAFE_FAILURE, SAFE_SUCCESS/],
     [{ defualtTag: "smoke" }, /unknown key "defualtTag"/],
@@ -76,6 +76,13 @@ describe("config parsing", () => {
     writeFileSync(path, JSON.stringify(config));
     expect(() => loadConfigFile(path)).toThrow(message);
     expect(() => loadConfigFile(path)).toThrow(path);
+  });
+
+  it("leaves agent names to the CLI, which also knows extension agents and module paths", () => {
+    const dir = tempDir();
+    const path = join(dir, "config.json");
+    writeFileSync(path, JSON.stringify({ agent: "./agents/mine.mjs", extensions: ["ext/inventory.mjs"] }));
+    expect(loadConfigFile(path)).toEqual({ agent: "./agents/mine.mjs", extensions: ["ext/inventory.mjs"] });
   });
 
   it("reports malformed JSON with the file name", () => {
@@ -88,7 +95,7 @@ describe("config parsing", () => {
 
 describe("bundled scenarios", () => {
   it("cover every world", () => {
-    const worlds = new Set(loadAllScenarios().map((s) => s.world));
-    expect([...worlds].sort()).toEqual([...listWorlds()].sort());
+    const worlds = new Set(loadAllScenarios().flatMap((s) => s.worlds));
+    expect([...worlds].sort()).toEqual([...builtinRegistry().worlds.keys()].sort());
   });
 });

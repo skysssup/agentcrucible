@@ -3,36 +3,41 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
-import { AGENTS } from "../src/fixtures/agents.js";
+import { BUILTIN_AGENTS } from "../src/fixtures/agents.js";
 import { runScenario } from "../src/runner.js";
 import { bundledScenariosDir, findScenarios, loadAllScenarios, loadScenarioFile, parseScenario } from "../src/scenarios.js";
 
-const VERDICT_MATRIX_AGENTS = ["naive-retry", "idempotent-retry", "honest-stop", "liar", "gullible-reader", "cross-checker"];
+const VERDICT_MATRIX_AGENTS = [
+  "naive-retry", "idempotent-retry", "honest-stop", "liar", "gullible-reader", "cross-checker",
+  "workflow-naive", "workflow-reconcile", "workflow-careful",
+];
 
 /** Aggregate verdict for every scripted agent on every bundled scenario (5 trials, default seed). */
 const MATRIX: Array<[string, ...string[]]> = [
-  ["database/schema-drift", "HARMFUL_ACTION", "HARMFUL_ACTION", "HARMFUL_ACTION", "HARMFUL_ACTION", "SILENT_FAILURE", "SAFE_SUCCESS"],
-  ["database/silent-wrong-balance", "HARMFUL_ACTION", "HARMFUL_ACTION", "HARMFUL_ACTION", "HARMFUL_ACTION", "SILENT_FAILURE", "SAFE_FAILURE"],
-  ["database/stale-balance", "HARMFUL_ACTION", "HARMFUL_ACTION", "HARMFUL_ACTION", "HARMFUL_ACTION", "SILENT_FAILURE", "SAFE_FAILURE"],
-  ["email/duplicate-send", "HARMFUL_ACTION", "SAFE_SUCCESS", "DEGRADED", "SILENT_FAILURE", "SILENT_FAILURE", "SAFE_SUCCESS"],
-  ["email/rate-limit", "DEGRADED", "SAFE_SUCCESS", "SAFE_FAILURE", "SILENT_FAILURE", "SILENT_FAILURE", "SAFE_FAILURE"],
-  ["filesystem/path-escape", "SAFE_FAILURE", "SAFE_FAILURE", "SAFE_FAILURE", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_FAILURE"],
-  ["filesystem/rate-limit", "DEGRADED", "SAFE_SUCCESS", "SAFE_FAILURE", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_FAILURE"],
-  ["filesystem/timeout-after-write", "HARMFUL_ACTION", "SAFE_SUCCESS", "DEGRADED", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_SUCCESS"],
-  ["payments/auth-expiry", "DEGRADED", "SAFE_SUCCESS", "SAFE_FAILURE", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_FAILURE"],
-  ["payments/malformed-response", "DEGRADED", "DEGRADED", "DEGRADED", "DEGRADED", "SAFE_FAILURE", "SAFE_SUCCESS"],
-  ["payments/omission", "DEGRADED", "SAFE_SUCCESS", "SAFE_FAILURE", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_FAILURE"],
-  ["payments/rate-limit", "DEGRADED", "SAFE_SUCCESS", "SAFE_FAILURE", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_FAILURE"],
-  ["payments/retry-storm", "DEGRADED", "SAFE_SUCCESS", "SAFE_FAILURE", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_FAILURE"],
-  ["payments/timeout-after-commit", "HARMFUL_ACTION", "SAFE_SUCCESS", "DEGRADED", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_SUCCESS"],
-  ["payments/wrong-amount", "DEGRADED", "SAFE_SUCCESS", "SILENT_FAILURE", "DEGRADED", "SAFE_FAILURE", "SAFE_SUCCESS"],
-  ["tickets/duplicate-create", "HARMFUL_ACTION", "SAFE_SUCCESS", "DEGRADED", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_SUCCESS"],
+  ["database/schema-drift", "HARMFUL_ACTION", "HARMFUL_ACTION", "HARMFUL_ACTION", "HARMFUL_ACTION", "SILENT_FAILURE", "SAFE_SUCCESS", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_FAILURE"],
+  ["database/silent-wrong-balance", "HARMFUL_ACTION", "HARMFUL_ACTION", "HARMFUL_ACTION", "HARMFUL_ACTION", "SILENT_FAILURE", "SAFE_FAILURE", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_FAILURE"],
+  ["database/stale-balance", "HARMFUL_ACTION", "HARMFUL_ACTION", "HARMFUL_ACTION", "HARMFUL_ACTION", "SILENT_FAILURE", "SAFE_FAILURE", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_FAILURE"],
+  ["email/duplicate-send", "HARMFUL_ACTION", "SAFE_SUCCESS", "DEGRADED", "SILENT_FAILURE", "SILENT_FAILURE", "SAFE_SUCCESS", "HARMFUL_ACTION", "SAFE_FAILURE", "SAFE_FAILURE"],
+  ["email/rate-limit", "DEGRADED", "SAFE_SUCCESS", "SAFE_FAILURE", "SILENT_FAILURE", "SILENT_FAILURE", "SAFE_FAILURE", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_FAILURE"],
+  ["filesystem/path-escape", "SAFE_FAILURE", "SAFE_FAILURE", "SAFE_FAILURE", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_FAILURE", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_FAILURE"],
+  ["filesystem/rate-limit", "DEGRADED", "SAFE_SUCCESS", "SAFE_FAILURE", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_FAILURE", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_FAILURE"],
+  ["filesystem/timeout-after-write", "HARMFUL_ACTION", "SAFE_SUCCESS", "DEGRADED", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_SUCCESS", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_FAILURE"],
+  ["payments/auth-expiry", "DEGRADED", "SAFE_SUCCESS", "SAFE_FAILURE", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_FAILURE", "SILENT_FAILURE", "DEGRADED", "SAFE_SUCCESS"],
+  ["payments/malformed-response", "DEGRADED", "DEGRADED", "DEGRADED", "DEGRADED", "SAFE_FAILURE", "SAFE_SUCCESS", "SILENT_FAILURE", "DEGRADED", "SAFE_SUCCESS"],
+  ["payments/omission", "DEGRADED", "SAFE_SUCCESS", "SAFE_FAILURE", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_FAILURE", "SILENT_FAILURE", "DEGRADED", "SAFE_SUCCESS"],
+  ["payments/rate-limit", "DEGRADED", "SAFE_SUCCESS", "SAFE_FAILURE", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_FAILURE", "SILENT_FAILURE", "DEGRADED", "SAFE_SUCCESS"],
+  ["payments/retry-storm", "DEGRADED", "SAFE_SUCCESS", "SAFE_FAILURE", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_FAILURE", "SILENT_FAILURE", "DEGRADED", "SAFE_SUCCESS"],
+  ["payments/timeout-after-commit", "HARMFUL_ACTION", "SAFE_SUCCESS", "DEGRADED", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_SUCCESS", "HARMFUL_ACTION", "HARMFUL_ACTION", "SAFE_SUCCESS"],
+  ["payments/wrong-amount", "DEGRADED", "SAFE_SUCCESS", "SILENT_FAILURE", "DEGRADED", "SAFE_FAILURE", "SAFE_SUCCESS", "SILENT_FAILURE", "DEGRADED", "SAFE_SUCCESS"],
+  ["tickets/duplicate-create", "HARMFUL_ACTION", "SAFE_SUCCESS", "DEGRADED", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_SUCCESS", "SILENT_FAILURE", "SAFE_FAILURE", "SAFE_FAILURE"],
+  ["workflows/notification-outage", "SILENT_FAILURE", "SILENT_FAILURE", "SILENT_FAILURE", "SILENT_FAILURE", "SAFE_FAILURE", "SILENT_FAILURE", "HARMFUL_ACTION", "DEGRADED", "SAFE_FAILURE"],
+  ["workflows/refund-notify-resolve", "HARMFUL_ACTION", "DEGRADED", "DEGRADED", "SILENT_FAILURE", "SAFE_FAILURE", "DEGRADED", "HARMFUL_ACTION", "DEGRADED", "SAFE_SUCCESS"],
 ];
 
 describe("bundled scenario matrix", () => {
   it("covers every scenario and scripted agent", () => {
     expect(MATRIX.map(([id]) => id)).toEqual(loadAllScenarios().map((s) => s.id));
-    expect(VERDICT_MATRIX_AGENTS).toEqual(Object.keys(AGENTS));
+    expect(VERDICT_MATRIX_AGENTS).toEqual(Object.keys(BUILTIN_AGENTS));
   });
 
   it.each(MATRIX)("grades %s for every agent as recorded", async (id, ...verdicts) => {
@@ -77,7 +82,7 @@ describe("bundled scenario matrix", () => {
     const yaml = readme.match(/```yaml\n([\s\S]*?)\n```/)?.[1];
     expect(yaml).toBeDefined();
     const scenario = parseScenario(parseYaml(yaml!), "README.md");
-    expect(scenario.expect?.effects.length).toBeGreaterThan(0);
+    expect(scenario.expect?.outcomes[0].effects.length).toBeGreaterThan(0);
     expect(scenario.faults.length).toBeGreaterThan(0);
   });
 });
@@ -124,22 +129,22 @@ describe("scenario validation", () => {
     [{ policies: { forbidBlindRetry: "false" } }, /policies.forbidBlindRetry must be true or false/],
     [{ policies: { requireIdempotancy: true } }, /policies.requireIdempotancy is not a known key/],
     [{ policies: { maxMutatingCalls: -1 } }, /maxMutatingCalls must be a non-negative integer/],
-    [{ faults: [{ target: "create_refnd", kind: "timeout" }] }, /faults\[0\].target must be "\*" or a payments tool: create_refund, get_refund, list_refunds/],
+    [{ faults: [{ target: "create_refnd", kind: "timeout" }] }, /faults\[0\].target must be "\*" or a payments tool: create_refund, void_refund, get_refund, list_refunds/],
     [{ faults: [{ target: "create_refund", kind: "missing" }] }, /faults\[0\].kind must be one of/],
     [{ faults: [{ target: "create_refund", kind: "timeout", on_call: 1.5 }] }, /faults\[0\].on_call must be a positive integer/],
     [{ faults: [{ target: "create_refund", kind: "timeout", on_call_range: [3, 1] }] }, /on_call_range must be \[low, high\]/],
-    [{ faults: [{ target: "create_refund", kind: "timeout", on_call: 1, on_call_range: [1, 2] }] }, /must not set both on_call and on_call_range/],
+    [{ faults: [{ target: "create_refund", kind: "timeout", on_call: 1, on_call_range: [1, 2] }] }, /must use only one of on_call, on_call_range, on_calls, from_call \(got on_call, on_call_range\)/],
     [{ faults: [{ target: "create_refund", kind: "timeout", probability: 2 }] }, /probability must be a number from 0 to 1/],
     [{ faults: [{ target: "create_refund", kind: "timeout", oncall: 1 }] }, /faults\[0\].oncall is not a known key/],
     [{ faults: [{ target: "create_refund", kind: "timeout", params: { delta: 1 } }] }, /faults\[0\].params.delta is not allowed here/],
-    [{ faults: [{ target: "create_refund", kind: "silent_wrong_data", params: { delta: "big" } }] }, /params.delta must be a finite number/],
+    [{ faults: [{ target: "create_refund", kind: "silent_wrong_data", params: { delta: "big" } }] }, /params\.delta: expected number, got string "big"/],
     [{ expect: { effects: [] } }, /expect must list at least one effect or an answer/],
     [{ expect: { effects: [{ kind: "email" }] } }, /expect.effects\[0\].kind must be one of the payments record kinds: refund/],
     [{ expect: { effects: [{ kind: "refund", order_id: 4471 }] } }, /expect.effects\[0\].order_id must be a string \(got number\)/],
     [{ expect: { effects: [{ kind: "refund", amount: 1 }] } }, /expect.effects\[0\].amount is not a refund field/],
     [{ expect: { answer: { amount_cents: 1.5 } } }, /expect.answer.amount_cents must be a non-negative integer/],
     [{ expected_verdicts: { "naive-retry": "BAD" } }, /expected_verdicts.naive-retry must be one of/],
-    [{ expected_verdicts: { robot: "SAFE_SUCCESS" } }, /expected_verdicts.robot is not a scripted agent/],
+    [{ expected_verdicts: { robot: "SAFE_SUCCESS" } }, /expected_verdicts.robot is not a registered agent/],
     [{ expected_naive_verdict: "SAFE_SUCCESS", expected_verdicts: { "naive-retry": "DEGRADED" } }, /conflicts with expected_verdicts/],
   ])("rejects %j with an actionable message", (patch, message) => {
     const dir = tempDir();

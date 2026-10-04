@@ -1,12 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { AGENTS } from "./fixtures/agents.js";
 import { parseTrials } from "./runner.js";
 import { VERDICTS, type Verdict } from "./types.js";
 
 export interface CrucibleConfig {
-  /** Default agent when --agent is omitted. */
+  /** Default agent when --agent is omitted: a registered agent id or a module path. */
   agent?: string;
   /** Default trial count. */
   trials?: number;
@@ -20,6 +19,8 @@ export interface CrucibleConfig {
   defaultTag?: string;
   /** Exit with status 2 when a verdict is at least this severe. */
   failOn?: Verdict;
+  /** Modules that export worlds, faults, or agents, relative to the working directory. */
+  extensions?: string[];
 }
 
 export const CONFIG_FILES = [
@@ -32,7 +33,7 @@ export const CONFIG_FILES = [
   ".agentcrucible/config.yml",
 ];
 
-const KEYS = ["agent", "trials", "seed", "out", "scenarioDirs", "defaultTag", "failOn"];
+const KEYS = ["agent", "trials", "seed", "out", "scenarioDirs", "defaultTag", "failOn", "extensions"];
 
 /** The config file in `cwd`, or null. More than one candidate is an error. */
 export function findConfigPath(cwd = process.cwd()): string | null {
@@ -64,9 +65,6 @@ export function parseConfigText(text: string, pathHint = "config"): CrucibleConf
       fail(`${key} must be a non-empty string`);
     }
   }
-  if (cfg.agent !== undefined && !Object.hasOwn(AGENTS, cfg.agent as string)) {
-    fail(`agent "${cfg.agent}" is not a scripted agent (available: ${Object.keys(AGENTS).join(", ")})`);
-  }
   if (cfg.trials !== undefined) {
     if (typeof cfg.trials !== "number") fail("trials must be a number");
     try {
@@ -75,8 +73,11 @@ export function parseConfigText(text: string, pathHint = "config"): CrucibleConf
       fail((err as Error).message);
     }
   }
-  if (cfg.scenarioDirs !== undefined && !(Array.isArray(cfg.scenarioDirs) && cfg.scenarioDirs.every((d) => typeof d === "string" && d.trim()))) {
-    fail("scenarioDirs must be a list of directory paths");
+  for (const key of ["scenarioDirs", "extensions"]) {
+    const list = cfg[key];
+    if (list !== undefined && !(Array.isArray(list) && list.every((d) => typeof d === "string" && d.trim()))) {
+      fail(`${key} must be a list of ${key === "scenarioDirs" ? "directory" : "module"} paths`);
+    }
   }
   if (cfg.failOn !== undefined && !VERDICTS.includes(cfg.failOn as Verdict)) {
     fail(`failOn must be one of: ${VERDICTS.join(", ")}`);

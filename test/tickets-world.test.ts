@@ -21,9 +21,19 @@ describe("tickets world", () => {
     expect(world.invoke("escalate_ticket", { ticket_id: "tkt_1", reason: "vip", idempotency_key: "e1" })).toMatchObject({ deduplicated: true });
     world.invoke("escalate_ticket", { ticket_id: "tkt_1", reason: "again" });
     expect(world.invoke("get_ticket", { ticket_id: "tkt_1" })).toEqual({
-      id: "tkt_1", title: "A", status: "escalated", comments: ["vip [idem:e1]", "again"],
+      ticket_id: "tkt_1", title: "A", status: "escalated", comments: ["vip", "again"],
     });
     expect(() => world.invoke("escalate_ticket", { ticket_id: "tkt_9" })).toThrow("ticket not found: tkt_9");
+  });
+
+  it("updates a seeded ticket's status and comments once per key", () => {
+    const world = createTicketsWorld();
+    world.reset();
+    world.seed!([{ kind: "ticket", id: "tkt_7", fields: { title: "Refund missing", status: "open" } }]);
+    expect(world.invoke("update_ticket", { ticket_id: "tkt_7", status: "resolved", comment: "Refunded.", idempotency_key: "u1" })).toEqual({ ticket_id: "tkt_7", status: "resolved", deduplicated: false });
+    expect(world.invoke("update_ticket", { ticket_id: "tkt_7", status: "escalated", idempotency_key: "u1" })).toMatchObject({ status: "resolved", deduplicated: true });
+    expect(world.invoke("create_ticket", { title: "B" })).toMatchObject({ ticket_id: "tkt_1" });
+    expect(world.records(world.snapshot())[0]).toEqual({ kind: "ticket", id: "tkt_7", fields: { title: "Refund missing", status: "resolved", comments: ["Refunded."] } });
   });
 
   it("naive-retry opens two tickets for one issue", async () => {

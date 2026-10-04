@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { gradeTrial } from "../src/grader.js";
 import { runHarness, type ScriptedAgent } from "../src/harness.js";
 import { runScenario } from "../src/runner.js";
 import { findScenarios } from "../src/scenarios.js";
-import { createWorld } from "../src/worlds/index.js";
+import { createWorld, grade } from "./helpers.js";
 
 const base = { scenarioId: "integrity", task: "check", seed: "test", trialIndex: 0, agentId: "test", faults: [] };
 
@@ -43,12 +42,12 @@ describe("trace integrity", () => {
     const vandal: ScriptedAgent = async (ctx) => {
       seen.push(ctx.tools[0].name);
       ctx.tools[0].name = "renamed";
-      ctx.tools[0].parameters.order_id.required = false;
+      ctx.tools[0].inputSchema.required = [];
       return "nothing to do";
     };
     await runScenario({ scenario, agentId: "vandal", agent: vandal, trials: 3 });
     expect(seen).toEqual(["create_refund", "create_refund", "create_refund"]);
-    expect(createWorld("payments").tools[0].parameters.order_id.required).toBe(true);
+    expect(createWorld("payments").tools[0].inputSchema.required).toEqual(["order_id", "amount_cents"]);
   });
 
   it("records unknown tools and catches a later success claim", async () => {
@@ -62,20 +61,24 @@ describe("trace integrity", () => {
       },
     });
     expect(trace.calls[0]).toMatchObject({ mutating: false, committed: false, observed: { ok: false, code: "ENOTOOL" } });
-    expect(gradeTrial(trace, world, {}).findings.map((f) => f.rule)).toContain("grader.no_false_success_claim");
+    expect(grade(trace, world).findings.map((f) => f.rule)).toContain("grader.no_false_success_claim");
   });
 
-  it("records world errors in the transcript", async () => {
+  it("records argument and world errors in the transcript", async () => {
     const trace = await runHarness({
       ...base,
       world: createWorld("database"),
       agent: async (ctx) => {
         await ctx.callTool("insert_row", { table: "items", data: null });
+        await ctx.callTool("get_balance", { account_id: "acct_9" });
         return "failed";
       },
     });
-    expect(trace.messages.some((m) => m.content.startsWith("tool_error insert_row requires table"))).toBe(true);
-    expect(trace.calls[0]).toMatchObject({ committed: false, observed: { code: "EWORLD" } });
+    expect(trace.messages.map((m) => m.content).filter((c) => c.startsWith("tool_error"))).toEqual([
+      "tool_error invalid arguments for insert_row: $.data: expected object, got null",
+      "tool_error account not found: acct_9",
+    ]);
+    expect(trace.calls.map((c) => [c.committed, c.observed.ok ? "ok" : c.observed.code])).toEqual([[false, "EARGS"], [false, "EWORLD"]]);
   });
 
   it.each([
@@ -106,7 +109,7 @@ describe("trace integrity", () => {
         return "Refunded $10.00.";
       },
     });
-    expect(gradeTrial(trace, world, {}).findings.map((f) => f.rule)).toContain("grader.no_fabricated_value");
+    expect(grade(trace, world).findings.map((f) => f.rule)).toContain("grader.no_fabricated_value");
   });
 });
 
@@ -124,10 +127,16 @@ describe("agent failures are errors, not verdicts", () => {
     );
   });
 
-  it("rejects a final answer that is not a string", async () => {
-    const agent = (async () => ({ text: "hi" })) as unknown as ScriptedAgent;
-    await expect(runScenario({ scenario: scenario(), agentId: "obj", agent })).rejects.toThrow(
-      'agent "obj" must return its final answer as a string'
-    );
+  it("rejects a final answer that is neither a string nor { text, output }", async () => {
+    for (const answer of [{ answer: "hi" }, 42, null]) {
+      const agent = (async () => answer) as unknown as ScriptedAgent;
+      await expect(runScenario({ scenario: scenario(), agentId: "obj", agent })).rejects.toThrow(
+        'agent "obj" must return its final answer as a string or as { text, output }'
+      );
+    }
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    const agent = (async () => ({ text: "hi", output: circular })) as unknown as ScriptedAgent;
+    await expect(runScenario({ scenario: scenario(), agentId: "loop", agent })).rejects.toThrow('agent "loop" returned an output that is not JSON-serializable');
   });
 });

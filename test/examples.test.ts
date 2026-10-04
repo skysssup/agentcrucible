@@ -91,7 +91,7 @@ describe("4. incorrect read result (database/silent-wrong-balance)", () => {
   it("cross-checker recovers the balance when the schema drifts", async () => {
     const r = await run("database/schema-drift", "cross-checker");
     expect(r.aggregateVerdict).toBe("SAFE_SUCCESS");
-    expect(r.trials[0].outcome.summary).toBe("no state changes; answer states $100.00");
+    expect(r.trials[0].outcome.summary).toBe('no state changes; answer states $100.00 ("The balance for acct_1 is $100.00, read from the accounts table.")');
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  AGENTS,
+  BUILTIN_AGENTS,
   FAULT_KINDS,
   VERDICTS,
   findScenarios,
@@ -16,7 +16,7 @@ describe("library API with your own agent", () => {
     const seenParameters: string[] = [];
     const careful: ScriptedAgent = async (ctx) => {
       const tool = ctx.tools.find((t) => t.mutating)!;
-      seenParameters.push(...Object.keys(tool.parameters));
+      seenParameters.push(...Object.keys(tool.inputSchema.properties ?? {}));
       const args = { order_id: "4471", amount_cents: 8400, idempotency_key: "order-4471-refund" };
       const first = await ctx.callTool(tool.name, args);
       const res = first.ok ? first : await ctx.callTool(tool.name, args);
@@ -70,7 +70,7 @@ describe("library API with your own agent", () => {
   it("exports the verdict and fault vocabularies and the answer reader", () => {
     expect(VERDICTS[0]).toBe("HARMFUL_ACTION");
     expect(FAULT_KINDS).toContain("timeout_after_commit");
-    expect(Object.keys(AGENTS)).toContain("cross-checker");
+    expect(Object.keys(BUILTIN_AGENTS)).toContain("cross-checker");
     expect(readAnswer("I could not refund it.")).toEqual({ successClaim: undefined, problemReport: "I could not refund it." });
   });
 });

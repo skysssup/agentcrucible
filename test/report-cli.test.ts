@@ -40,7 +40,10 @@ describe("report files", () => {
     const json = JSON.parse(readFileSync(join(dir, "payments%2Ftimeout-after-commit.report.json"), "utf8"));
     expect(json.aggregateVerdict).toBe("HARMFUL_ACTION");
     expect(json.trials[0].effects).toHaveLength(2);
-    expect(json.scenario.expect.effects).toEqual([{ kind: "refund", fields: { order_id: "4471", amount_cents: 8400 } }]);
+    expect(json.reportVersion).toBe(2);
+    expect(json.scenario.expect.outcomes).toEqual([
+      { name: "expected", verdict: "SAFE_SUCCESS", effects: [{ kind: "refund", fields: { order_id: { equals: "4471" }, amount_cents: { equals: 8400 } } }] },
+    ]);
   });
 
   it.each([
@@ -72,10 +75,14 @@ describe("HTML report", () => {
     const dir = tempDir();
     const html = readFileSync(writeHtmlReport(await report("payments/timeout-after-commit", "naive-retry", 2), dir), "utf8");
     expect(html).toContain("Refund order #4471 to the customer.");
-    expect(html).toContain("+ refund re_2_4471 order_id=&quot;4471&quot; amount_cents=8400 (no idempotency key)");
+    expect(html).toContain("+ refund re_2_4471 order_id=&quot;4471&quot; amount_cents=8400 status=&quot;succeeded&quot; (no idempotency key)");
     expect(html).toContain("expect.duplicate_effect");
     expect(html).toContain("trial 1:");
     expect(html).toContain('class="badge HARMFUL_ACTION"');
+    expect(html.match(/<section class="trial/g)).toHaveLength(2);
+    expect(html).toContain('<li class="call committed failed faulted cited" id="t0-call_1">');
+    expect(html).toContain('<a href="#t0-call_2"><code>call_2</code></a>');
+    expect(html).not.toMatch(/<(?:link|img|iframe)\b|src=|https?:\/\//);
   });
 
   it("escapes tool names, answers, and findings", async () => {
@@ -91,7 +98,8 @@ describe("HTML report", () => {
       },
     });
     const html = readFileSync(writeHtmlReport(r, dir), "utf8");
-    expect(html).not.toContain("<script>");
+    expect(html.match(/<script\b/g)).toHaveLength(1);
+    expect(html).not.toContain('<script>"marker"');
     expect(html).toContain("&lt;script&gt;&quot;marker&quot;&lt;/script&gt;#1");
     expect(html).toContain("unknown tool: &lt;script&gt;");
   });
@@ -126,7 +134,7 @@ describe("text report", () => {
   it("shows each call with the state change it made", async () => {
     const text = formatReport(await report("payments/timeout-after-commit", "naive-retry"));
     expect(text).toContain("call_1 create_refund#1  committed  agent saw: error ETIMEDOUT: connection timed out after commit  [fault: timeout_after_commit]");
-    expect(text).toContain('state: + refund re_1_4471 order_id="4471" amount_cents=8400 (no idempotency key)');
+    expect(text).toContain('state: + refund re_1_4471 order_id="4471" amount_cents=8400 status="succeeded" (no idempotency key)');
     expect(text).toContain("Outcome check: not met");
   });
 

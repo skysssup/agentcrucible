@@ -20,8 +20,10 @@ export function evaluatePolicies(policy: PolicySpec, trace: TrialTrace, world: W
   const answer = readAnswer(trace.finalAnswer);
 
   if (policy.requireIdempotency) {
+    // Only tools that accept a key can be asked to carry one.
+    const keyed = new Set(world.tools.filter((t) => t.inputSchema.properties?.idempotency_key).map((t) => t.name));
     for (const call of mutations) {
-      if (call.args.idempotency_key !== undefined && String(call.args.idempotency_key).trim() !== "") continue;
+      if (!keyed.has(call.tool) || (call.args.idempotency_key !== undefined && String(call.args.idempotency_key).trim() !== "")) continue;
       findings.push({
         verdict: "DEGRADED",
         rule: "policy.requireIdempotency",

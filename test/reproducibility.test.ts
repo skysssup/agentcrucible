@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { AGENTS } from "../src/fixtures/agents.js";
+import { BUILTIN_AGENTS } from "../src/fixtures/agents.js";
 import { runHarness } from "../src/harness.js";
 import { runScenario } from "../src/runner.js";
 import { findScenarios, loadAllScenarios } from "../src/scenarios.js";
 import type { RunReport } from "../src/types.js";
-import { createWorld } from "../src/worlds/index.js";
+import { createWorld } from "./helpers.js";
 
 /** Everything except wall-clock timing. */
 const stable = ({ startedAt: _s, finishedAt: _f, durationMs: _d, ...rest }: RunReport) => rest;
 
 describe("reproducibility", () => {
   it.each(loadAllScenarios())("$id gives identical reports for the same seed", async (scenario) => {
-    for (const agentId of Object.keys(AGENTS)) {
+    for (const agentId of Object.keys(BUILTIN_AGENTS)) {
       const a = await runScenario({ scenario, agentId, trials: 3, seed: "repro" });
       const b = await runScenario({ scenario, agentId, trials: 3, seed: "repro" });
       expect(stable(a)).toEqual(stable(b));
