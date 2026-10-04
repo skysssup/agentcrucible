@@ -192,7 +192,7 @@ export function scenariosView(meta: Meta, scenarios: ScenarioSummary[], f: Scena
   <div class="toolbar">
     <input type="search" id="scenario-q" placeholder="Search ids, tasks, faults  /" value="${esc(f.q)}" aria-label="Search scenarios"/>
     <select id="scenario-world" aria-label="World"><option value="">All worlds</option>${worlds.map((w) => `<option${w === f.world ? " selected" : ""}>${esc(w)}</option>`).join("")}</select>
-    <span class="tags">${tags.map((t) => `<span class="tag${t === f.tag ? " on" : ""}" data-action="tag" data-tag="${esc(t)}">${esc(t)}</span>`).join("")}</span>
+    <span class="tags" role="group" aria-label="Filter by tag">${tags.map((t) => `<button type="button" class="tag${t === f.tag ? " on" : ""}" data-action="tag" data-tag="${esc(t)}" aria-pressed="${t === f.tag}">${esc(t)}</button>`).join("")}</span>
   </div>
   <div id="scenario-list">${scenarioList(shown, selected)}</div>
   <h2>Run the selected scenarios</h2>
