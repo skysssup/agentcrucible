@@ -172,7 +172,7 @@ describe("expectations", () => {
   });
 
   it("checks the stated amount for a question", async () => {
-    const balance = expectations("database", { effects: [], answer: { amount_cents: 10000 } });
+    const balance = expectations("database", { effects: [], answer: [{ type: "amount", cents: 10000 }] });
     const answer = (text: string): ScriptedAgent => async (ctx) => {
       await ctx.callTool("get_balance", { account_id: "acct_1" });
       return text;

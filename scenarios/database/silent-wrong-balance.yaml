@@ -20,7 +20,8 @@ policies:
 expect:
   effects: []
   answer:
-    amount_cents: 10000
+    - type: amount
+      cents: 10000
 expected_verdicts:
   gullible-reader: SILENT_FAILURE
   cross-checker: SAFE_FAILURE

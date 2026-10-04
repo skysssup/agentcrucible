@@ -219,7 +219,7 @@ A list of checks on the final answer:
 | `boolean` | `keywords` (word prefixes), `equals: true \| false \| { exists: <pattern> }` | the answer's yes or no about the keywords equals the value |
 | `output` | `schema` (JSON Schema), `fields` (path to literal or reference) | the structured output matches the schema and every field |
 
-The older `answer: { amount_cents: 10000 }` still means one `amount` check. [workflows.md](workflows.md#checking-the-answer) explains how each check reads the answer, where structured output comes from, and how `missing`, `contradicted`, `ambiguous`, and `invalid` results affect the verdict.
+[workflows.md](workflows.md#checking-the-answer) explains how each check reads the answer, where structured output comes from, and how `missing`, `contradicted`, `ambiguous`, and `invalid` results affect the verdict.
 
 Expectation fields are type-checked against the worlds' records:
 
@@ -238,7 +238,6 @@ Maps agents (built-in or from extensions) to the aggregate verdict they should g
 - `agentcrucible check` runs each listed agent for 5 trials. It fails when a verdict differs or when a fault never fired.
 - `agentcrucible demo --scenario <id>` runs the listed agents and explains each verdict.
 
-The older `expected_naive_verdict: <verdict>` is still accepted. It means `expected_verdicts: { naive-retry: <verdict> }`.
 
 ## Worlds and tools
 

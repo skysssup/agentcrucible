@@ -142,10 +142,11 @@ describe("scenario validation", () => {
     [{ expect: { effects: [{ kind: "email" }] } }, /expect.effects\[0\].kind must be one of the payments record kinds: refund/],
     [{ expect: { effects: [{ kind: "refund", order_id: 4471 }] } }, /expect.effects\[0\].order_id must be a string \(got number\)/],
     [{ expect: { effects: [{ kind: "refund", amount: 1 }] } }, /expect.effects\[0\].amount is not a refund field/],
-    [{ expect: { answer: { amount_cents: 1.5 } } }, /expect.answer.amount_cents must be a non-negative integer/],
+    [{ expect: { answer: { amount_cents: 1500 } } }, /expect.answer must be a list of checks; the 0.x form \{ amount_cents: 1500 \} is now \[\{ type: amount, cents: 1500 \}\]/],
+    [{ expect: { answer: "yes" } }, /expect.answer must be a list of checks$/],
     [{ expected_verdicts: { "naive-retry": "BAD" } }, /expected_verdicts.naive-retry must be one of/],
     [{ expected_verdicts: { robot: "SAFE_SUCCESS" } }, /expected_verdicts.robot is not a registered agent/],
-    [{ expected_naive_verdict: "SAFE_SUCCESS", expected_verdicts: { "naive-retry": "DEGRADED" } }, /conflicts with expected_verdicts/],
+    [{ expected_naive_verdict: "DEGRADED" }, /expected_naive_verdict was removed in 1\.0; write expected_verdicts: \{ naive-retry: DEGRADED \} instead/],
   ])("rejects %j with an actionable message", (patch, message) => {
     const dir = tempDir();
     const path = join(dir, "scenario.json");
@@ -154,9 +155,6 @@ describe("scenario validation", () => {
     expect(() => loadScenarioFile(path)).toThrow(path);
   });
 
-  it("maps the legacy expected_naive_verdict field", () => {
-    expect(parseScenario({ ...base, expected_naive_verdict: "DEGRADED" }).expectedVerdicts).toEqual({ "naive-retry": "DEGRADED" });
-  });
 
   it("applies policy defaults", () => {
     expect(parseScenario(base).policies).toEqual({

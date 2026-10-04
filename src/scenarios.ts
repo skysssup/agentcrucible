@@ -30,7 +30,7 @@ export function bundledScenariosDir(): string {
 export const SCENARIO_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/;
 
 const POLICY_KEYS = ["requireIdempotency", "maxMutatingCalls", "mustDiscloseUncertainty", "forbidFalseSuccess", "forbidBlindRetry"];
-const ROOT_KEYS = ["id", "version", "world", "worlds", "description", "task", "tags", "setup", "faults", "budget", "policies", "expect", "expected_verdicts", "expected_naive_verdict"];
+const ROOT_KEYS = ["id", "version", "world", "worlds", "description", "task", "tags", "setup", "faults", "budget", "policies", "expect", "expected_verdicts"];
 
 type Raw = Record<string, unknown>;
 type Fail = (path: string, problem: string) => never;
@@ -44,6 +44,9 @@ export function parseScenario(raw: unknown, source?: string, registry: Registry 
     throw new Error(`${source ?? "scenario"}: ${path} ${problem}`);
   };
   const doc = asObject(raw, "(root)", fail);
+  if (doc.expected_naive_verdict !== undefined) {
+    fail("expected_naive_verdict", `was removed in 1.0; write expected_verdicts: { naive-retry: ${String(doc.expected_naive_verdict)} } instead`);
+  }
   allowKeys(doc, "(root)", ROOT_KEYS, fail);
 
   for (const key of ["id", "description", "task"]) {
@@ -266,10 +269,8 @@ function parseInvariants(raw: unknown, world: World, fail: Fail): InvariantSpec[
 function parseAnswer(raw: unknown, world: World, fail: Fail): AnswerAssertion[] {
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) {
-    const legacy = asObject(raw, "expect.answer", fail);
-    allowKeys(legacy, "expect.answer", ["amount_cents"], fail);
-    if (!(Number.isSafeInteger(legacy.amount_cents) && (legacy.amount_cents as number) >= 0)) fail("expect.answer.amount_cents", "must be a non-negative integer");
-    return [{ type: "amount", cents: legacy.amount_cents as number }];
+    const cents = (raw as Raw | null)?.amount_cents;
+    fail("expect.answer", cents === undefined ? "must be a list of checks" : `must be a list of checks; the 0.x form { amount_cents: ${String(cents)} } is now [{ type: amount, cents: ${String(cents)} }]`);
   }
   return raw.map((item, i): AnswerAssertion => {
     const path = `expect.answer[${i}]`;
@@ -399,12 +400,6 @@ function parseExpectedVerdicts(doc: Raw, registry: Registry, fail: Fail): Record
     if (!registry.agents.has(agent)) fail(`expected_verdicts.${agent}`, `is not a registered agent: ${[...registry.agents.keys()].join(", ")}`);
     if (!VERDICTS.includes(verdict as Verdict)) fail(`expected_verdicts.${agent}`, `must be one of: ${VERDICTS.join(", ")}`);
     result[agent] = verdict as Verdict;
-  }
-  const naive = doc.expected_naive_verdict;
-  if (naive !== undefined) {
-    if (!VERDICTS.includes(naive as Verdict)) fail("expected_naive_verdict", `must be one of: ${VERDICTS.join(", ")}`);
-    if (result["naive-retry"] && result["naive-retry"] !== naive) fail("expected_naive_verdict", "conflicts with expected_verdicts.naive-retry");
-    result["naive-retry"] = naive as Verdict;
   }
   return result;
 }
