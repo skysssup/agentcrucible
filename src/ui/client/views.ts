@@ -206,7 +206,7 @@ export function errorView(message: string, stale = false): string {
 }
 
 /** Counts of each verdict as a stacked bar, with an optional legend. */
-function verdictBar(rows: Array<{ verdict?: Verdict }>, opts: { legend?: boolean; size?: "sm" | "md" } = {}): string {
+function verdictBar(rows: Array<{ verdict?: Verdict }>, opts: { legend?: boolean; size?: "xs" | "sm" | "md" } = {}): string {
   const counts = VERDICT_ORDER.map((v) => [v, rows.filter((r) => r.verdict === v).length] as const).filter(([, n]) => n > 0);
   if (counts.length === 0) return "";
   const label = counts.map(([v, n]) => `${n} ${v}`).join(", ");
@@ -572,7 +572,11 @@ export function runView(run: RunState): string {
   const agents = [...new Set(run.results.map((r) => r.agentId!))];
   const at = (s: string, a: string) => run.results.find((r) => r.scenarioId === s && r.agentId === a);
   const graded = run.results.filter((r) => r.expected).length;
-  const mismatches = run.results.filter((r) => r.expected && r.expected !== r.verdict).length;
+  const mismatches = run.results.filter(unexpected).length;
+  const multiTrial = run.results.some((r) => (r.trials ?? 1) > 1);
+  const flakyCount = run.results.filter(flaky).length;
+  const filter = (f: string, label: string, n: number) =>
+    `<button type="button" class="seg-btn${f ? "" : " on"}" data-action="matrix-filter" data-filter="${f}" aria-pressed="${!f}">${label}<span class="seg-count">${n}</span></button>`;
   return `<div class="page">
   ${pageHead({
     crumbs: [["Runs", "#/runs"], [run.runId]],
@@ -585,22 +589,54 @@ export function runView(run: RunState): string {
       <div class="stat-tile"><span>Results</span><b>${run.results.length}</b><small>${plural(scenarios.length, "scenario")} × ${plural(agents.length, "agent")}</small></div>
       <div class="stat-tile"><span>As expected</span><b>${graded - mismatches}<em>/${graded}</em></b><small>${graded ? "against expected_verdicts" : "no expectations listed"}</small></div>
       <div class="stat-tile${mismatches ? " bad" : ""}"><span>Unexpected</span><b>${mismatches}</b><small>${mismatches ? `${plural(mismatches, "result differs", "results differ")} from expected_verdicts` : "nothing differs"}</small></div>
+      ${multiTrial ? `<div class="stat-tile${flakyCount ? " warn" : ""}"><span>Flaky</span><b>${flakyCount}</b><small>${flakyCount ? `${plural(flakyCount, "result's", "results'")} trials disagree` : "every trial agreed"}</small></div>` : ""}
     </div>
     <div class="run-summary-bar">${verdictBar(run.results, { legend: true })}</div>
   </section>
-  <div class="matrix-wrap"><table class="matrix" style="min-width:${210 + agents.length * 176}px"><thead><tr><th class="matrix-corner">Scenario</th>${agents.map((a) => `<th><code>${esc(a)}</code></th>`).join("")}</tr></thead>
+  ${mismatches || flakyCount ? `<div class="matrix-tools"><div class="seg" role="group" aria-label="Show results">${filter("", "All", run.results.length)}${mismatches ? filter("unexpected", "Unexpected", mismatches) : ""}${flakyCount ? filter("flaky", "Flaky", flakyCount) : ""}</div></div>` : ""}
+  <div class="matrix-wrap" id="matrix"><table class="matrix" style="min-width:${210 + agents.length * 176}px"><thead><tr><th class="matrix-corner">Scenario</th>${agents
+    .map((a) => {
+      const col = run.results.filter((r) => r.agentId === a);
+      return `<th><div class="col-head"><code title="${esc(a)}">${esc(a)}</code>${verdictBar(col, { size: "xs" })}${expectSummary(col)}</div></th>`;
+    })
+    .join("")}</tr></thead>
   <tbody>${scenarios
-    .map(
-      (s) => `<tr><th scope="row"><a href="${href("scenario", s)}">${esc(s).replace(/\//g, "/<wbr>")}</a></th>${agents
+    .map((s) => {
+      const row = run.results.filter((r) => r.scenarioId === s);
+      return `<tr data-unexpected="${row.some(unexpected) ? 1 : 0}" data-flaky="${row.some(flaky) ? 1 : 0}"><th scope="row"><a href="${href("scenario", s)}">${esc(s).replace(/\//g, "/<wbr>")}</a>${expectSummary(row)}</th>${agents
         .map((a) => {
           const r = at(s, a);
           if (!r) return `<td><span class="cell cell-empty">not run</span></td>`;
-          return `<td><a class="cell ${esc(r.verdict)}${r.expected && r.expected !== r.verdict ? " mismatch" : ""}" href="${href("report", r.key)}" title="${esc(r.reason)}"><span class="cell-top">${badge(r.verdict)} ${expectedMark(r)}</span><span class="why">${esc(clip(r.reason ?? "", 110))}</span></a></td>`;
+          return `<td><a class="cell ${esc(r.verdict)}${unexpected(r) ? " mismatch" : ""}${flaky(r) ? " is-flaky" : ""}" href="${href("report", r.key)}" title="${esc(r.reason)}"><span class="cell-top">${badge(r.verdict)} ${expectedMark(r)}${icon("arrowRight", 13, "cell-go")}</span><span class="why">${esc(clip(r.reason ?? "", 110))}</span>${trialStrip(r)}</a></td>`;
         })
-        .join("")}</tr>`
-    )
+        .join("")}</tr>`;
+    })
     .join("")}</tbody></table></div>
 </div>`;
+}
+
+function unexpected(r: ReportSummary): boolean {
+  return Boolean(r.expected && r.expected !== r.verdict);
+}
+
+/** True when a result's trials ended with different verdicts. */
+function flaky(r: ReportSummary): boolean {
+  return Object.values(r.byVerdict ?? {}).filter((n) => (n ?? 0) > 0).length > 1;
+}
+
+/** The verdicts of a result's trials as a small bar, when it has more than one trial. */
+function trialStrip(r: ReportSummary): string {
+  if ((r.trials ?? 1) < 2) return "";
+  const parts = VERDICT_ORDER.filter((v) => r.byVerdict?.[v]).map((v) => [v, r.byVerdict![v]!] as const);
+  return `<span class="trials${flaky(r) ? " flaky" : ""}" title="${esc(`${r.trials} trials: ${parts.map(([v, n]) => `${n} ${v}`).join(", ")}`)}"><span class="trial-bar">${parts.map(([v, n]) => `<i class="${v}" style="flex:${n}"></i>`).join("")}</span><span>${flaky(r) ? "flaky, " : ""}${r.trials} trials</span></span>`;
+}
+
+/** "✓ 3/3" when every graded result matched expected_verdicts, otherwise the number that did not. */
+function expectSummary(results: ReportSummary[]): string {
+  const graded = results.filter((r) => r.expected).length;
+  if (!graded) return "";
+  const off = results.filter(unexpected).length;
+  return off ? `<span class="exp-sum bad">${icon("xCircle", 12)}${off} of ${graded} unexpected</span>` : `<span class="exp-sum ok">${icon("checkCircle", 12)}${graded}/${graded} as expected</span>`;
 }
 
 function reportTable(rows: ReportSummary[], opts: { selectable: boolean; selected?: Set<string> }): string {

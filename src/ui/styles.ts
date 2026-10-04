@@ -366,12 +366,13 @@ export const UI_CSS = `${BASE_CSS}${REPORT_CSS}
   .matrix-wrap { max-height:calc(100vh - 120px); overflow:auto; border:1px solid var(--border); border-radius:12px; background:var(--surface); box-shadow:var(--shadow-sm); }
   .matrix { width:100%; table-layout:fixed; border-collapse:separate; border-spacing:0; }
   .matrix thead th { position:sticky; top:0; z-index:2; padding:11px 12px; border-bottom:1px solid var(--border); background:var(--surface-2); text-align:left; }
-  .matrix thead th code { display:block; overflow:hidden; color:var(--fg); font-size:12px; font-weight:600; text-overflow:ellipsis; }
+  .matrix thead th code { display:block; overflow:hidden; color:var(--fg); font-size:12px; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+  .matrix thead th { vertical-align:top; }
   .matrix .matrix-corner { left:0; z-index:3; width:210px; border-right:1px solid var(--border); }
   .matrix tbody th { position:sticky; left:0; z-index:1; padding:14px; border-right:1px solid var(--border); border-bottom:1px solid var(--border); background:var(--surface); text-align:left; font-weight:400; }
   .matrix tbody th a { color:var(--fg); font:600 12.5px/1.4 var(--font-mono); text-decoration:none; overflow-wrap:anywhere; }
   .matrix tbody th a:hover { text-decoration:underline; }
-  .matrix td { padding:8px; border-bottom:1px solid var(--border); vertical-align:top; }
+  .matrix td { height:1px; padding:8px; border-bottom:1px solid var(--border); vertical-align:top; }
   .matrix tbody tr:last-child > * { border-bottom:0; }
   .cell { display:flex; flex-direction:column; gap:7px; height:100%; padding:10px; border-radius:9px; background:color-mix(in srgb, var(--v-bg) 65%, var(--surface)); color:inherit; text-decoration:none; box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--v-bd) 70%, transparent); transition:box-shadow .15s, transform .15s; }
   a.cell:hover { box-shadow:inset 0 0 0 1px var(--v-bd), var(--shadow); transform:translateY(-1px); }
@@ -380,6 +381,25 @@ export const UI_CSS = `${BASE_CSS}${REPORT_CSS}
   .cell .badge { padding:0 8px 0 7px; font-size:10.5px; }
   .cell .why { display:-webkit-box; overflow:hidden; color:var(--fg-2); font-size:12.5px; line-height:1.45; -webkit-line-clamp:3; -webkit-box-orient:vertical; }
   .cell-empty { color:var(--faint); font-size:12px; }
+  .cell { position:relative; }
+  .cell-go { position:absolute; top:13px; right:10px; color:var(--v-fg); opacity:0; transform:translateX(-3px); transition:opacity .15s, transform .15s; }
+  a.cell:hover .cell-go, a.cell:focus-visible .cell-go { opacity:1; transform:none; }
+  .trials { display:flex; align-items:center; gap:8px; margin-top:auto; color:var(--muted); font-size:11.5px; font-variant-numeric:tabular-nums; }
+  .trials.flaky { color:var(--warn-fg); font-weight:600; }
+  .trial-bar { display:flex; flex:1; gap:2px; height:5px; max-width:96px; overflow:hidden; border-radius:999px; }
+  .trial-bar i { min-width:3px; background:var(--v); }
+  .cell.is-flaky { box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--warn-fg) 55%, transparent); }
+  .col-head { display:flex; flex-direction:column; gap:6px; min-width:0; }
+  .col-head code { overflow:hidden; text-overflow:ellipsis; }
+  .col-head .vbar { max-width:140px; }
+  .vbar-xs { height:4px; gap:1px; }
+  .exp-sum { display:inline-flex; align-items:center; gap:5px; font:500 11.5px/1.3 var(--font-sans); white-space:nowrap; }
+  .exp-sum.ok { color:var(--ok-fg); } .exp-sum.bad { color:var(--bad-fg); }
+  .matrix tbody th .exp-sum { display:flex; margin-top:6px; }
+  .matrix-tools { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:0 0 12px; }
+  #matrix[data-filter=unexpected] tr[data-unexpected="0"], #matrix[data-filter=flaky] tr[data-flaky="0"] { display:none; }
+  #matrix[data-filter=unexpected] .cell:not(.mismatch), #matrix[data-filter=flaky] .cell:not(.is-flaky) { opacity:.35; }
+  .stat-tile.warn { border-color:color-mix(in srgb, var(--warn-fg) 30%, transparent); background:var(--warn-bg); } .stat-tile.warn b { color:var(--warn-fg); }
 
   .table-wrap { overflow:auto; border:1px solid var(--border); border-radius:12px; background:var(--surface); box-shadow:var(--shadow-sm); }
   .table-wrap.flush { border:0; border-radius:0; box-shadow:none; }
@@ -532,6 +552,9 @@ export const UI_CSS = `${BASE_CSS}${REPORT_CSS}
   .toast { display:flex; align-items:flex-start; gap:10px; max-width:460px; padding:11px 8px 11px 14px; border:1px solid var(--border-2); border-radius:11px; background:var(--surface); box-shadow:var(--shadow-lg); font-size:13.5px; line-height:1.45; animation:fade-up .2s ease-out; transition:opacity .2s, transform .2s; }
   .toast > .i { margin-top:1px; }
   .toast-ok > .i { color:var(--ok-fg); } .toast-bad > .i { color:var(--bad-fg); } .toast-info > .i { color:var(--info-fg); }
+  .toast-progress > .spinner { margin-top:2px; color:var(--accent); }
+  .toast-action { align-self:center; padding:3px 9px; border:1px solid var(--border-2); border-radius:7px; color:var(--fg); font-size:12.5px; font-weight:600; text-decoration:none; white-space:nowrap; }
+  .toast-action:hover { background:var(--surface-3); }
   .toast-text { flex:1; min-width:0; padding-top:1px; word-break:break-word; }
   .toast .icon-btn { width:24px; height:24px; margin:-2px 0 0; }
   .toast.out { opacity:0; transform:translateY(6px); }

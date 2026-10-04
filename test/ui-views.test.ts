@@ -95,6 +95,25 @@ describe("UI views", () => {
     expect(html).toContain('href="#/report/mem-2"');
   });
 
+  it("shows each result's trials and filters the matrix to unexpected or flaky results", () => {
+    const html = runView({
+      runId: "run-2",
+      label: "trials",
+      at: "now",
+      results: [
+        report({ trials: 3, byVerdict: { HARMFUL_ACTION: 1, SAFE_SUCCESS: 2 }, expected: "HARMFUL_ACTION" }),
+        report({ key: "mem-2", agentId: "liar", verdict: "SAFE_SUCCESS", trials: 3, byVerdict: { SAFE_SUCCESS: 3 }, expected: "SILENT_FAILURE" }),
+      ],
+    });
+    expect(html).toContain("flaky, 3 trials");
+    expect(html).toContain('title="3 trials: 1 HARMFUL_ACTION, 2 SAFE_SUCCESS"');
+    expect(html).toContain('data-unexpected="1" data-flaky="1"');
+    expect(html).toContain('data-filter="unexpected"');
+    expect(html).toContain('data-filter="flaky"');
+    expect(html).toContain("1 of 2 unexpected");
+    expect(html).toContain("1/1 as expected");
+  });
+
   it("counts regressions and new failures at the fail-on threshold", () => {
     const change = { scenario: "s", agent: "a", rulesAdded: [], rulesRemoved: [] };
     const html = comparisonPanel(

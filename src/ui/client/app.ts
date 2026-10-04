@@ -275,7 +275,8 @@ function applyTheme(): void {
   for (const b of document.querySelectorAll<HTMLElement>('.theme-switch [data-theme]')) b.setAttribute("aria-checked", String(b.dataset.theme === state.theme));
 }
 
-function toast(text: string, kind: "ok" | "bad" | "info" = "ok"): void {
+/** Shows a toast; it closes itself after a few seconds unless `persist` is set. Returns a function that closes it. */
+function toast(text: string, kind: "ok" | "bad" | "info" | "progress" = "ok", opts: { action?: { label: string; href: string }; persist?: boolean } = {}): () => void {
   let stack = document.querySelector(".toasts");
   if (!stack) {
     stack = document.createElement("div");
@@ -285,14 +286,36 @@ function toast(text: string, kind: "ok" | "bad" | "info" = "ok"): void {
   const el = document.createElement("div");
   el.className = `toast toast-${kind}`;
   el.setAttribute("role", kind === "bad" ? "alert" : "status");
-  el.innerHTML = `${icon(kind === "bad" ? "xCircle" : kind === "ok" ? "checkCircle" : "info", 16)}<div class="toast-text">${esc(text)}</div><button type="button" class="icon-btn" aria-label="Dismiss">${icon("x", 14)}</button>`;
+  const lead = kind === "progress" ? '<span class="spinner"></span>' : icon(kind === "bad" ? "xCircle" : kind === "ok" ? "checkCircle" : "info", 16);
+  el.innerHTML = `${lead}<div class="toast-text">${esc(text)}</div>${opts.action ? `<a class="toast-action" href="${esc(opts.action.href)}">${esc(opts.action.label)}</a>` : ""}<button type="button" class="icon-btn" aria-label="Dismiss">${icon("x", 14)}</button>`;
   const remove = () => {
     el.classList.add("out");
     setTimeout(() => el.remove(), 200);
   };
   el.querySelector("button")!.addEventListener("click", remove);
+  el.querySelector(".toast-action")?.addEventListener("click", remove);
   stack.append(el);
-  setTimeout(remove, kind === "bad" ? 9000 : 4500);
+  if (!opts.persist) setTimeout(remove, kind === "bad" ? 9000 : 5000);
+  return remove;
+}
+
+/** A toast with a running clock for work that takes more than a moment. Returns a function that closes it. */
+function progress(text: string): () => void {
+  const started = Date.now();
+  let close: (() => void) | undefined;
+  let clock: ReturnType<typeof setInterval> | undefined;
+  const show = setTimeout(() => {
+    close = toast(text, "progress", { persist: true });
+    const label = document.querySelector(".toast-progress:last-child .toast-text");
+    clock = setInterval(() => {
+      if (label) label.textContent = `${text} · ${Math.round((Date.now() - started) / 1000)}s`;
+    }, 1000);
+  }, 500);
+  return () => {
+    clearTimeout(show);
+    clearInterval(clock);
+    close?.();
+  };
 }
 
 /** A modal confirmation; resolves true when the user confirms. */
@@ -361,8 +384,11 @@ async function runFromForm(form: HTMLFormElement): Promise<void> {
   const trials = Number(data.get("trials") || 1);
   const seed = String(data.get("seed") ?? "").trim() || undefined;
   const action = form.dataset.action;
+  const expected = (verdicts: Record<string, unknown> | undefined) => agents.length || Object.keys(verdicts ?? {}).length;
+  const label = (scenarios: number, agentRuns: number) => `Running ${plural(scenarios, "scenario")}: ${plural(agentRuns, "agent run")} × ${plural(trials, "trial")}`;
   if (action === "run-draft") {
-    const run = await busy(form, "Running…", () => startRun({ text: state.editor.text }, agents, trials, seed));
+    const done = progress(label(1, expected(state.editor.validation?.summary?.expectedVerdicts)));
+    const run = await busy(form, "Running…", () => startRun({ text: state.editor.text }, agents, trials, seed)).finally(done);
     if (!run) return;
     state.editor.run = run;
     const target = document.getElementById("editor-run");
@@ -370,8 +396,9 @@ async function runFromForm(form: HTMLFormElement): Promise<void> {
     return;
   }
   const ids = action === "run-scenario" ? [state.detail?.summary.id ?? ""] : [...state.selectedScenarios];
-  if (ids.length === 0) return toast("Select at least one scenario first.", "bad");
-  const run = await busy(form, "Running…", () => startRun({ scenarioIds: ids }, agents, trials, seed));
+  if (ids.length === 0) return void toast("Select at least one scenario first.", "bad");
+  const done = progress(label(ids.length, ids.reduce((n, id) => n + expected(state.scenarios?.find((s) => s.id === id)?.expectedVerdicts), 0)));
+  const run = await busy(form, "Running…", () => startRun({ scenarioIds: ids }, agents, trials, seed)).finally(done);
   if (run) location.hash = href("run", run.runId);
 }
 
@@ -446,6 +473,15 @@ async function act(action: string, el: HTMLElement): Promise<void> {
       form?.querySelector<HTMLButtonElement>("button[type=submit]")?.focus({ preventScroll: true });
       return;
     }
+    case "matrix-filter": {
+      const matrix = document.getElementById("matrix");
+      if (matrix) matrix.dataset.filter = el.dataset.filter ?? "";
+      for (const b of el.parentElement?.querySelectorAll<HTMLElement>(".seg-btn") ?? []) {
+        b.classList.toggle("on", b === el);
+        b.setAttribute("aria-pressed", String(b === el));
+      }
+      return;
+    }
     case "scroll-to":
       document.getElementById(el.dataset.target ?? "")?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
@@ -460,7 +496,7 @@ async function act(action: string, el: HTMLElement): Promise<void> {
     case "save-one": {
       const keys = action === "save-one" ? [el.dataset.key ?? ""] : selectedKeys(el);
       const saved = await busy(el, "Saving…", () => api<{ outDir: string; files: string[] }>("/api/save", { keys }));
-      if (saved) toast(`Saved ${plural(saved.files.length, "report")} under ${saved.outDir}`);
+      if (saved) toast(`Saved ${plural(saved.files.length, "report")} under ${saved.outDir}`, "ok", { action: { label: "View", href: "#/reports" } });
       return;
     }
     case "compare-run":
@@ -560,7 +596,7 @@ async function saveScenario(el: HTMLElement): Promise<void> {
   if (!saved) return;
   state.scenarios = undefined;
   state.editorSource = saved.id;
-  toast(`Saved ${saved.id} to ${saved.path}`);
+  toast(`Saved ${saved.id} to ${saved.path}`, "ok", { action: { label: "Open", href: href("scenario", saved.id) } });
 }
 
 let validateTimer: ReturnType<typeof setTimeout> | undefined;
