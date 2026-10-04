@@ -640,6 +640,13 @@ Exit status: 0 ok; 1 usage, config, scenario, or extension error (validate: a fi
 const EXAMPLES = `# Five agents on the lost-response refund, explained
 agentcrucible demo
 
+# Start a project: a config file, a starter scenario, and a starter agent, then run them
+agentcrucible init
+agentcrucible run
+
+# Browse, run, compare, and edit scenarios in a local web UI
+agentcrucible ui
+
 # A refund, a customer email, and a ticket update across three worlds, with the email service down
 agentcrucible demo --scenario workflows/notification-outage
 
@@ -657,7 +664,8 @@ agentcrucible run --tag smoke --agent cross-checker --baseline baseline.json
 agentcrucible inspect .agentcrucible/out/payments%2Ftimeout-after-commit.report.json --call call_2
 agentcrucible replay .agentcrucible/out/payments%2Ftimeout-after-commit.report.json
 
-# Confirm every scenario still grades the scripted agents as expected
+# Check scenario files without running them, then confirm every expected verdict
+agentcrucible validate
 agentcrucible check`;
 
 main(process.argv.slice(2)).then(

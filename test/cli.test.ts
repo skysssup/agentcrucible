@@ -417,3 +417,15 @@ describe("init and validate", () => {
     expectUsageError(runCli(["ui", "--port", "70000"]), /--port must be a port number/);
   });
 });
+
+describe("examples", () => {
+  it("lists only commands that the CLI accepts", () => {
+    const cwd = tempDir();
+    const lines = runCli(["examples"], { cwd }).stdout.split("\n").filter((l) => l.startsWith("agentcrucible "));
+    expect(lines.length).toBeGreaterThan(8);
+    for (const line of lines) {
+      const command = line.split(" ")[1];
+      expect(runCli([command, "--no-such-option"], { cwd }).stderr, line).toContain(`${command} does not accept --no-such-option`);
+    }
+  });
+});
