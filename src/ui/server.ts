@@ -69,8 +69,8 @@ export async function startUi(opts: UiOptions): Promise<UiServer> {
   const summaryCache = new Map<string, { mtimeMs: number; summary: ReportSummary }>();
 
   const scenarios = () => loadAllScenarios(opts.scenarioRoots, opts.registry);
-  const findScenario = (id: string) => {
-    const scenario = scenarios().find((s) => s.id === id);
+  const findScenario = (id: string, all = scenarios()) => {
+    const scenario = all.find((s) => s.id === id);
     if (!scenario) throw new HttpError(404, `no scenario with id ${id}`);
     return scenario;
   };
@@ -135,8 +135,9 @@ export async function startUi(opts: UiOptions): Promise<UiServer> {
     },
     "POST /api/run": async (req) => {
       const input = await body(req);
-      const chosen: Scenario[] =
-        input.text !== undefined ? [parseDraftOr400(stringField(input.text, "text"), opts.registry)] : stringList(input.scenarioIds, "scenarioIds").map(findScenario);
+      const ids = input.text === undefined ? stringList(input.scenarioIds, "scenarioIds") : [];
+      const all = ids.length ? scenarios() : [];
+      const chosen: Scenario[] = input.text !== undefined ? [parseDraftOr400(stringField(input.text, "text"), opts.registry)] : ids.map((id) => findScenario(id, all));
       if (chosen.length === 0) throw new HttpError(400, "choose at least one scenario");
       const requested = stringList(input.agents, "agents");
       const agents = requested.length ? requested : undefined;
