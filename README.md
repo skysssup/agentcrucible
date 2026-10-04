@@ -9,7 +9,10 @@ It finds the failure handling that ordinary tests miss:
 - "Done" when the committed state says otherwise;
 - a wrong number or id passed on from a bad response.
 
-![The AgentCrucible UI: three scenarios run against five agents](docs/images/ui-run.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/ui-demo-dark.png">
+  <img alt="The AgentCrucible UI: the guided demo runs five agents against the same lost response" src="docs/images/ui-demo.png">
+</picture>
 
 ## Install
 
@@ -197,6 +200,7 @@ Create the baseline once with `--save-baseline agentcrucible-baseline.json` and 
 
 `agentcrucible ui` serves a local web app on 127.0.0.1 for the project in the current directory:
 
+- walk through a guided demo: five agents handle the same lost response, call by call;
 - browse and search scenarios, and run any selection against any agents as a scenario-by-agent matrix;
 - open each report's timeline, replay it, and save it;
 - compare a run with the baseline, or save it as the new baseline;

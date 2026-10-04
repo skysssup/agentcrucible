@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+A redesign of `agentcrucible ui` and of the HTML report and run index. Verdicts, reports, baselines, and the CLI are unchanged.
+
+### UI
+
+- **Layout.** A sidebar replaces the top bar, with the project directory and a light, dark, or system theme switch; a forced theme is applied before the page paints. ⌘K (Ctrl+K) opens a command palette over pages, scenarios, recent runs, and actions. Saving, comparing, and replacing files report in toasts and ask in dialogs instead of browser alerts. The layout works down to phone widths.
+- **Guided demo.** A new page runs the five agents of `payments/timeout-after-commit` with the seed `demo`, as `agentcrucible demo` does, and shows each agent's calls, final answer, and verdict side by side, then what each verdict means. The overview links to it.
+- **Report timelines render in the page** instead of a frame, with the same markup as the HTML report, so call ids in findings jump to the call and open it. The HTML button opens the standalone report. The page's content security policy now also forbids frames.
+- **Runs survive a reload.** The server keeps the last 50 runs, and `GET /api/runs` lists them; each run on the Runs page shows its mix of verdicts and whether every result matched `expected_verdicts`.
+- **Editor:** line numbers, YAML highlighting, the line of a parse error marked, Tab and Shift+Tab indentation, Enter that keeps the indentation, and the cursor position.
+- Scenarios are grouped by folder, with world and tag filters and a run panel beside the list; the scenario page shows the source with line numbers. The Reports page can select every report shown.
+
+### HTML report and run index
+
+- The report opens with why it got its verdict and the deciding rule, next to the task, faults, budget, and expectations, then the commands that reproduce it. Trials list their statistics, calls are cards on a timeline marked by whether they committed, failed, or had a fault, calls a finding cites are labeled `evidence`, and JSON is highlighted. The run index shows the mix of verdicts as a bar.
+
 ## 1.0.0
 
 1.0 adds a local web UI, a project starter, and scenario validation, makes every saved trace replay, and removes the two 0.x scenario forms that had newer replacements. From this release on, AgentCrucible follows semantic versioning; [docs/stability.md](docs/stability.md) lists what 1.x keeps compatible. Every bundled scenario gives the same verdicts for the bundled agents as in 0.5.0, and reports and baselines written by 0.5.0 load, replay, and compare unchanged.
