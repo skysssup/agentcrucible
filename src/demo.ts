@@ -1,62 +1,74 @@
+import { join } from "node:path";
+import { AGENT_DESCRIPTIONS } from "./fixtures/agents.js";
+import { describeFault, formatCallLines, painter, shouldColor, worstTrial, writeHtmlReport, writeJsonReport } from "./report.js";
 import { runScenario } from "./runner.js";
-import { printReport, writeHtmlReport, writeJsonReport } from "./report.js";
-import { findScenarios } from "./scenarios.js";
-import { BOLD, DIM, RESET, verdictColor } from "./verdict.js";
+import type { RunReport, Scenario } from "./types.js";
 
-export async function runDemo(): Promise<number> {
-  console.log(`${BOLD}demo: payments/timeout-after-commit${RESET}`);
-  console.log(
-    `${DIM}naive retry double-applies a refund when the first call times out after commit${RESET}`
-  );
-  console.log();
+export const DEMO_SCENARIO = "payments/timeout-after-commit";
+export const DEMO_SEED = "demo";
 
-  const scenarios = findScenarios({ id: "payments/timeout-after-commit" });
-  if (scenarios.length === 0) {
-    console.error("Scenario payments/timeout-after-commit not found.");
-    return 1;
+export interface DemoResult {
+  reports: RunReport[];
+  /** Agents whose verdict differs from the scenario's expected_verdicts. */
+  mismatches: string[];
+}
+
+/** Runs every agent listed in the scenario's expected_verdicts with one seed and explains the results. */
+export async function runDemo(scenario: Scenario, out?: string): Promise<DemoResult> {
+  const paint = painter(shouldColor(process.stdout));
+  const agents = Object.keys(scenario.expectedVerdicts);
+  if (agents.length === 0) throw new Error(`${scenario.id} has no expected_verdicts, so there is nothing to demonstrate`);
+  const log = (line = "") => console.log(line);
+
+  log(paint("bold", `AgentCrucible demo: ${scenario.id}`));
+  log();
+  log(`Task:  ${scenario.task}`);
+  log(`Fault: ${scenario.faults.map(describeFault).join("; ") || "none"}`);
+  log(`Risk:  ${scenario.description}`);
+  log();
+  log(`Each agent below runs the same scenario with seed "${DEMO_SEED}", so the fault hits the same call every time.`);
+
+  const reports: RunReport[] = [];
+  const mismatches: string[] = [];
+  for (const [i, agentId] of agents.entries()) {
+    const report = await runScenario({ scenario, agentId, seed: DEMO_SEED });
+    reports.push(report);
+    const trial = worstTrial(report)!;
+    const expected = scenario.expectedVerdicts[agentId];
+    const matches = report.aggregateVerdict === expected;
+    if (!matches) mismatches.push(agentId);
+    log();
+    log(`${paint("bold", `${i + 1}. ${agentId}`)} ${paint("dim", `- ${AGENT_DESCRIPTIONS[agentId] ?? ""}`)}`);
+    for (const line of formatCallLines(trial, paint)) log(`   ${line}`);
+    log(`   answer:  ${JSON.stringify(trial.trace.finalAnswer)}`);
+    log(
+      `   verdict: ${paint(report.aggregateVerdict, report.aggregateVerdict)} ${matches ? paint("dim", "(expected)") : paint("bold", `(UNEXPECTED: scenario expects ${expected})`)}`
+    );
+    log(`   why:     ${trial.reason}`);
   }
-  const scenario = scenarios[0];
 
-  console.log("Task:  " + scenario.task);
-  console.log("Fault: timeout_after_commit on create_refund#1");
-  console.log("        (ledger commits, agent sees ETIMEDOUT)");
-  console.log();
-
-  console.log(`${BOLD}1) naive-retry agent${RESET} — retries without idempotency`);
-  const naive = await runScenario({
-    scenario,
-    agentId: "naive-retry",
-    seed: "demo-double-charge",
-    trials: 1,
-  });
-  printReport(naive);
-
-  console.log(`${BOLD}2) honest-stop agent${RESET} — discloses uncertainty, no retry`);
-  const honest = await runScenario({
-    scenario,
-    agentId: "honest-stop",
-    seed: "demo-double-charge",
-    trials: 1,
-  });
-  printReport(honest);
-
-  console.log(`${BOLD}3) idempotent-retry agent${RESET} — retries with shared key`);
-  const idem = await runScenario({
-    scenario,
-    agentId: "idempotent-retry",
-    seed: "demo-double-charge",
-    trials: 1,
-  });
-  printReport(idem);
-
-  const outDir = ".agentcrucible/demo";
-  writeJsonReport(naive, outDir);
-  const html = writeHtmlReport(naive, outDir);
-  console.log(`Wrote ${html}`);
-  console.log();
-  console.log(
-    `Takeaway: ${verdictColor("HARMFUL_ACTION")}${BOLD}naive-retry${RESET} double-applies the refund; honest-stop stops after the timeout; idempotent-retry reuses a key.`
-  );
-  console.log(`${DIM}Try: agentcrucible run --scenario payments/timeout-after-commit --agent naive-retry --trials 5${RESET}`);
-  return 0;
+  log();
+  log(paint("bold", "Comparison"));
+  const width = Math.max(...agents.map((a) => a.length));
+  for (const report of reports) {
+    const trial = worstTrial(report)!;
+    const changes = `${trial.effects.length} state change${trial.effects.length === 1 ? "" : "s"}`;
+    log(`  ${report.agentId.padEnd(width)}  ${paint(report.aggregateVerdict, report.aggregateVerdict.padEnd(14))}  ${changes.padEnd(16)}  ${trial.findings[0]?.rule ?? ""}`);
+  }
+  log();
+  if (out) {
+    for (const report of reports) {
+      writeJsonReport(report, join(out, report.agentId));
+      writeHtmlReport(report, join(out, report.agentId));
+    }
+    log(`Wrote JSON and HTML reports to ${join(out, "<agent>")}/`);
+  }
+  if (mismatches.length === 0) {
+    log("Every verdict matches the scenario's expected_verdicts. HARMFUL_ACTION and SILENT_FAILURE here are the");
+    log("behaviors this scenario is designed to catch; they are not errors in the demo.");
+  } else {
+    log(paint("bold", `Self-check failed: ${mismatches.join(", ")} did not get the expected verdict.`));
+  }
+  log(paint("dim", `Next: agentcrucible run --scenario ${scenario.id} --agent naive-retry --trials 5`));
+  return { reports, mismatches };
 }

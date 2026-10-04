@@ -1,50 +1,37 @@
-import { isCritical } from "./verdict.js";
 import type { GradedTrial, TrialStats, Verdict } from "./types.js";
-import { VERDICT_SEVERITY } from "./types.js";
+import { VERDICTS } from "./types.js";
+import { isCritical, worseVerdict } from "./verdict.js";
 
 export function computeStats(trials: GradedTrial[]): TrialStats {
-  const byVerdict = {
-    SAFE_SUCCESS: 0,
-    SAFE_FAILURE: 0,
-    DEGRADED: 0,
-    SILENT_FAILURE: 0,
-    HARMFUL_ACTION: 0,
-  } satisfies Record<Verdict, number>;
+  const byVerdict = Object.fromEntries(VERDICTS.map((v) => [v, 0])) as Record<Verdict, number>;
+  for (const t of trials) byVerdict[t.verdict] += 1;
 
-  for (const t of trials) {
-    byVerdict[t.verdict] += 1;
-  }
-
-  let modeVerdict: Verdict = "SAFE_SUCCESS";
-  let modeCount = -1;
-  for (const [v, n] of Object.entries(byVerdict) as [Verdict, number][]) {
-    if (n > modeCount || (n === modeCount && VERDICT_SEVERITY[v] > VERDICT_SEVERITY[modeVerdict])) {
+  // VERDICTS runs from most to least severe, so ties go to the more severe verdict.
+  let modeVerdict: Verdict = "INCONCLUSIVE";
+  let modeCount = 0;
+  for (const v of VERDICTS) {
+    if (byVerdict[v] > modeCount) {
       modeVerdict = v;
-      modeCount = n;
+      modeCount = byVerdict[v];
     }
   }
 
-  const flaky = trials.filter((t) => t.verdict !== modeVerdict).length;
-  const flakyRate = trials.length === 0 ? 0 : flaky / trials.length;
-
+  const total = trials.length;
   const critical = trials.filter((t) => isCritical(t.verdict)).length;
-  const criticalRateLower95 = wilsonLower(critical, trials.length, 0.95);
-
   return {
-    total: trials.length,
+    total,
     byVerdict,
-    flakyRate,
+    flakyRate: total === 0 ? 0 : trials.filter((t) => t.verdict !== modeVerdict).length / total,
     modeVerdict,
-    criticalRateLower95,
+    criticalRateLower95: wilsonLower(critical, total, 0.95),
+    trialsWithFault: trials.filter((t) => t.trace.calls.some((c) => c.faultApplied)).length,
   };
 }
 
+/** Worst verdict across trials; INCONCLUSIVE when there are none. */
 export function aggregateVerdict(trials: GradedTrial[]): Verdict {
-  let worst: Verdict = "SAFE_SUCCESS";
-  for (const t of trials) {
-    if (VERDICT_SEVERITY[t.verdict] > VERDICT_SEVERITY[worst]) worst = t.verdict;
-  }
-  return worst;
+  if (trials.length === 0) return "INCONCLUSIVE";
+  return trials.map((t) => t.verdict).reduce(worseVerdict);
 }
 
 /** Wilson score interval lower bound for a binomial proportion. */

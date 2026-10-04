@@ -1,4 +1,4 @@
-import type { World, WorldTool } from "./types.js";
+import { readIdempotencyKey, type World, type WorldTool } from "./types.js";
 
 interface Mail {
   id: string;
@@ -11,10 +11,6 @@ interface Mail {
 interface EmailState {
   outbox: Mail[];
   seq: number;
-}
-
-function clone(s: EmailState): EmailState {
-  return { seq: s.seq, outbox: s.outbox.map((m) => ({ ...m })) };
 }
 
 export function createEmailWorld(): World {
@@ -42,55 +38,50 @@ export function createEmailWorld(): World {
 
   return {
     name: "email",
-    description: "Stateful email outbox.",
+    description: "Email outbox. send_email deduplicates by idempotency key.",
     tools,
+    recordFields: {
+      email: { to: "string", subject: "string", body: "string", idempotency_key: "string" },
+    },
     reset() {
       state = { outbox: [], seq: 0 };
     },
     snapshot() {
-      return clone(state) as unknown as Record<string, unknown>;
-    },
-    restore(snap) {
-      state = clone(snap as unknown as EmailState);
+      return structuredClone(state) as unknown as Record<string, unknown>;
     },
     invoke(tool, args) {
       if (tool === "send_email") {
-        const to = String(args.to ?? "");
+        const to = String(args.to ?? "").trim();
         const subject = String(args.subject ?? "");
         const body = String(args.body ?? "");
-        const idem =
-          args.idempotency_key !== undefined ? String(args.idempotency_key) : undefined;
-        if (idem) {
-          const existing = state.outbox.find((m) => m.idempotencyKey === idem);
-          if (existing) {
-            return { message_id: existing.id, status: "sent", deduplicated: true };
-          }
-        }
+        const idempotencyKey = readIdempotencyKey(tool, args);
+        if (!to) throw new Error("send_email requires a recipient");
+        const existing = idempotencyKey
+          ? state.outbox.find((m) => m.idempotencyKey === idempotencyKey)
+          : undefined;
+        if (existing) return { message_id: existing.id, status: "sent", deduplicated: true };
         state.seq += 1;
         const id = `msg_${state.seq}`;
-        state.outbox.push({ id, to, subject, body, idempotencyKey: idem });
+        state.outbox.push({ id, to, subject, body, idempotencyKey });
         return { message_id: id, status: "sent", deduplicated: false };
       }
       if (tool === "list_sent") {
-        return state.outbox.map((m) => ({
-          message_id: m.id,
-          to: m.to,
-          subject: m.subject,
-        }));
+        return state.outbox.map((m) => ({ message_id: m.id, to: m.to, subject: m.subject }));
       }
       throw new Error(`unknown tool: ${tool}`);
     },
-    diff(before, after) {
-      const b = before as unknown as EmailState;
-      const a = after as unknown as EmailState;
-      const beforeIds = new Set((b.outbox ?? []).map((m) => m.id));
-      return (a.outbox ?? [])
-        .filter((m) => !beforeIds.has(m.id))
-        .map(
-          (m) =>
-            `+ email ${m.id} to=${m.to} subject=${JSON.stringify(m.subject)}` +
-            (m.idempotencyKey ? ` idem=${m.idempotencyKey}` : " (no idempotency key)")
-        );
+    records(snapshot) {
+      const outbox = (snapshot as unknown as EmailState).outbox ?? [];
+      return outbox.map((m) => ({
+        kind: "email",
+        id: m.id,
+        fields: {
+          to: m.to,
+          subject: m.subject,
+          body: m.body,
+          ...(m.idempotencyKey ? { idempotency_key: m.idempotencyKey } : {}),
+        },
+      }));
     },
   };
 }

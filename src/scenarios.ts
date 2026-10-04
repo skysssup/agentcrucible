@@ -1,149 +1,241 @@
-import { readFileSync, readdirSync, statSync, existsSync, realpathSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
-import type { FaultSpec, PolicySpec, Scenario, Verdict } from "./types.js";
+import { AGENTS } from "./fixtures/agents.js";
+import {
+  FAULT_KINDS,
+  VERDICTS,
+  type EffectExpectation,
+  type FaultKind,
+  type FaultSpec,
+  type PolicySpec,
+  type Scenario,
+  type ScenarioExpectations,
+  type Verdict,
+} from "./types.js";
+import { createWorld, listWorlds } from "./worlds/index.js";
+import type { World } from "./worlds/types.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
+/** Scenarios shipped with the package: `<package root>/scenarios`. */
 export function bundledScenariosDir(): string {
-  const candidates = [
-    join(__dirname, "..", "scenarios"),
-    join(__dirname, "..", "..", "scenarios"),
-    join(process.cwd(), "scenarios"),
-  ];
-  for (const c of candidates) {
-    if (existsSync(c)) return c;
-  }
-  return candidates[0];
+  return join(dirname(fileURLToPath(import.meta.url)), "..", "scenarios");
 }
 
-interface RawScenario {
-  id: string;
-  version?: number;
-  world: string;
-  description: string;
-  task: string;
-  tags?: string[];
-  faults: Array<{
-    target: string;
-    kind: string;
-    on_call?: number;
-    on_call_range?: [number, number];
-    probability?: number;
-    params?: Record<string, unknown>;
-  }>;
-  policies?: Partial<PolicySpec> & Record<string, unknown>;
-  expected_naive_verdict?: Verdict;
-}
+export const SCENARIO_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/;
 
-function normalize(raw: RawScenario): Scenario {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Scenario must be an object');
-  for (const key of ['id', 'world', 'description', 'task'] as const) {
-    if (typeof raw[key] !== 'string' || !raw[key].trim()) throw new Error(`Invalid scenario ${key}`);
+const POLICY_KEYS = ["requireIdempotency", "maxMutatingCalls", "mustDiscloseUncertainty", "forbidFalseSuccess", "forbidBlindRetry"];
+const FAULT_PARAMS: Partial<Record<FaultKind, string[]>> = {
+  silent_wrong_data: ["field", "delta"],
+  stale_cache: ["field", "stale_value"],
+};
+
+type Raw = Record<string, unknown>;
+type Fail = (path: string, problem: string) => never;
+
+/** Validates a parsed scenario document and fills in defaults. Errors name the source and field. */
+export function parseScenario(raw: unknown, source?: string): Scenario {
+  const fail: Fail = (path, problem) => {
+    throw new Error(`${source ?? "scenario"}: ${path} ${problem}`);
+  };
+  const doc = asObject(raw, "(root)", fail);
+  allowKeys(doc, "(root)", ["id", "version", "world", "description", "task", "tags", "faults", "policies", "expect", "expected_verdicts", "expected_naive_verdict"], fail);
+
+  for (const key of ["id", "world", "description", "task"]) {
+    if (typeof doc[key] !== "string" || !(doc[key] as string).trim()) fail(key, "must be a non-empty string");
   }
-  if (!['payments', 'email', 'database', 'filesystem', 'tickets'].includes(raw.world)) throw new Error('Unknown scenario world');
-  if (raw.version !== undefined && raw.version !== 1) throw new Error('Unsupported scenario version');
-  if (raw.tags !== undefined && (!Array.isArray(raw.tags) || !raw.tags.every(value => typeof value === 'string'))) throw new Error('Scenario tags must be string[]');
-  if (raw.policies !== undefined && (!raw.policies || typeof raw.policies !== 'object' || Array.isArray(raw.policies))) throw new Error('Scenario policies must be an object');
-  for (const key of ['requireIdempotency', 'mustDiscloseUncertainty', 'forbidFalseSuccess', 'forbidBlindRetry'] as const) {
-    if (raw.policies?.[key] !== undefined && typeof raw.policies[key] !== 'boolean') throw new Error(`Policy ${key} must be boolean`);
+  const id = doc.id as string;
+  if (id.length > 100 || !SCENARIO_ID_PATTERN.test(id)) {
+    fail("id", `"${id}" must be lowercase segments of a-z, 0-9, ".", "_", "-" separated by "/" (at most 100 characters)`);
   }
-  const budget = raw.policies?.maxMutatingCalls;
-  if (budget !== undefined && (!Number.isSafeInteger(budget) || budget < 0)) throw new Error('Invalid mutation budget');
-  if (raw.faults !== undefined && !Array.isArray(raw.faults)) throw new Error('Scenario faults must be an array');
-  const kinds = ['timeout_after_commit', 'timeout', 'omission', 'silent_wrong_data', 'rate_limit_429', 'malformed_response', 'retry_storm', 'auth_expiry', 'stale_cache', 'schema_drift'];
-  for (const fault of raw.faults ?? []) {
-    if (!fault || typeof fault !== 'object' || !kinds.includes(fault.kind) || typeof fault.target !== 'string' || !fault.target) throw new Error('Invalid fault specification');
-    if (fault.on_call !== undefined && (!Number.isSafeInteger(fault.on_call) || fault.on_call < 1)) throw new Error('Invalid fault on_call');
-    const range = fault.on_call_range;
-    if (range !== undefined && (!Array.isArray(range) || range.length !== 2 || !range.every(value => Number.isSafeInteger(value) && value > 0) || range[0] > range[1])) throw new Error('Invalid fault on_call_range');
-    if (range && fault.on_call !== undefined) throw new Error('Specify on_call or on_call_range, not both');
-    if (fault.probability !== undefined && (typeof fault.probability !== 'number' || !Number.isFinite(fault.probability) || fault.probability < 0 || fault.probability > 1)) throw new Error('Invalid fault probability');
-    if (fault.params !== undefined && (!fault.params || typeof fault.params !== 'object' || Array.isArray(fault.params))) throw new Error('Fault params must be an object');
-    if (fault.kind === 'silent_wrong_data' && fault.params?.delta !== undefined && (typeof fault.params.delta !== 'number' || !Number.isFinite(fault.params.delta))) throw new Error('Fault delta must be finite');
+  if (!listWorlds().includes(doc.world as string)) fail("world", `"${doc.world}" is not one of: ${listWorlds().join(", ")}`);
+  const world = createWorld(doc.world as string);
+  if (doc.version !== undefined && doc.version !== 1) fail("version", "must be 1");
+
+  const tags = doc.tags ?? [];
+  if (!Array.isArray(tags) || !tags.every((t) => typeof t === "string" && t.trim())) fail("tags", "must be a list of non-empty strings");
+
+  const rawPolicies = asObject(doc.policies ?? {}, "policies", fail);
+  allowKeys(rawPolicies, "policies", POLICY_KEYS, fail);
+  for (const key of POLICY_KEYS.filter((k) => k !== "maxMutatingCalls")) {
+    if (rawPolicies[key] !== undefined && typeof rawPolicies[key] !== "boolean") fail(`policies.${key}`, "must be true or false");
   }
+  const budget = rawPolicies.maxMutatingCalls;
+  if (budget !== undefined && !(Number.isSafeInteger(budget) && (budget as number) >= 0)) fail("policies.maxMutatingCalls", "must be a non-negative integer");
   const policies: PolicySpec = {
-    requireIdempotency: Boolean(raw.policies?.requireIdempotency),
-    maxMutatingCalls:
-      raw.policies?.maxMutatingCalls !== undefined
-        ? Number(raw.policies.maxMutatingCalls)
-        : undefined,
-    mustDiscloseUncertainty: Boolean(raw.policies?.mustDiscloseUncertainty ?? true),
-    forbidFalseSuccess: Boolean(raw.policies?.forbidFalseSuccess ?? true),
-    forbidBlindRetry: Boolean(raw.policies?.forbidBlindRetry ?? true),
+    requireIdempotency: (rawPolicies.requireIdempotency as boolean | undefined) ?? false,
+    maxMutatingCalls: budget as number | undefined,
+    mustDiscloseUncertainty: (rawPolicies.mustDiscloseUncertainty as boolean | undefined) ?? true,
+    forbidFalseSuccess: (rawPolicies.forbidFalseSuccess as boolean | undefined) ?? true,
+    forbidBlindRetry: (rawPolicies.forbidBlindRetry as boolean | undefined) ?? true,
   };
 
-  const faults: FaultSpec[] = (raw.faults ?? []).map((f) => ({
-    target: f.target,
-    kind: f.kind as FaultSpec["kind"],
-    onCall: f.on_call,
-    onCallRange: f.on_call_range,
-    probability: f.probability,
-    params: f.params,
-  }));
+  const rawFaults = doc.faults ?? [];
+  if (!Array.isArray(rawFaults)) fail("faults", "must be a list");
+  const faults = (rawFaults as unknown[]).map((f, i) => parseFault(f, `faults[${i}]`, world, fail));
 
   return {
-    id: raw.id,
-    version: raw.version ?? 1,
-    world: raw.world,
-    description: raw.description,
-    task: raw.task,
-    tags: raw.tags ?? [],
+    id,
+    version: 1,
+    world: world.name,
+    description: (doc.description as string).trim(),
+    task: (doc.task as string).trim(),
+    tags: tags as string[],
     faults,
     policies,
-    expectedNaiveVerdict: raw.expected_naive_verdict,
+    ...(doc.expect === undefined ? {} : { expect: parseExpectations(doc.expect, world, fail) }),
+    expectedVerdicts: parseExpectedVerdicts(doc, fail),
+    ...(source === undefined ? {} : { source }),
   };
+}
+
+function parseFault(raw: unknown, path: string, world: World, fail: Fail): FaultSpec {
+  const f = asObject(raw, path, fail);
+  allowKeys(f, path, ["target", "kind", "on_call", "on_call_range", "probability", "params"], fail);
+  const tools = world.tools.map((t) => t.name);
+  if (typeof f.target !== "string" || (f.target !== "*" && !tools.includes(f.target))) {
+    fail(`${path}.target`, `must be "*" or a ${world.name} tool: ${tools.join(", ")}`);
+  }
+  if (!FAULT_KINDS.includes(f.kind as FaultKind)) fail(`${path}.kind`, `must be one of: ${FAULT_KINDS.join(", ")}`);
+  const kind = f.kind as FaultKind;
+  if (f.on_call !== undefined && !(Number.isSafeInteger(f.on_call) && (f.on_call as number) >= 1)) fail(`${path}.on_call`, "must be a positive integer");
+  const range = f.on_call_range;
+  if (range !== undefined) {
+    if (!Array.isArray(range) || range.length !== 2 || !range.every((v) => Number.isSafeInteger(v) && v >= 1) || range[0] > range[1]) {
+      fail(`${path}.on_call_range`, "must be [low, high] with positive integers and low <= high");
+    }
+    if (f.on_call !== undefined) fail(path, "must not set both on_call and on_call_range");
+  }
+  const p = f.probability;
+  if (p !== undefined && !(typeof p === "number" && p >= 0 && p <= 1)) fail(`${path}.probability`, "must be a number from 0 to 1");
+  const params = asObject(f.params ?? {}, `${path}.params`, fail);
+  allowKeys(params, `${path}.params`, FAULT_PARAMS[kind] ?? [], fail);
+  if (params.field !== undefined && (typeof params.field !== "string" || !params.field)) fail(`${path}.params.field`, "must be a non-empty string");
+  if (params.delta !== undefined && !(typeof params.delta === "number" && Number.isFinite(params.delta))) fail(`${path}.params.delta`, "must be a finite number");
+  return {
+    target: f.target as string,
+    kind,
+    ...(f.on_call === undefined ? {} : { onCall: f.on_call as number }),
+    ...(range === undefined ? {} : { onCallRange: range as [number, number] }),
+    ...(p === undefined ? {} : { probability: p as number }),
+    ...(f.params === undefined ? {} : { params }),
+  };
+}
+
+function parseExpectations(raw: unknown, world: World, fail: Fail): ScenarioExpectations {
+  const e = asObject(raw, "expect", fail);
+  allowKeys(e, "expect", ["effects", "answer"], fail);
+  const rawEffects = e.effects ?? [];
+  if (!Array.isArray(rawEffects)) fail("expect.effects", "must be a list");
+  const effects = (rawEffects as unknown[]).map((item, i): EffectExpectation => {
+    const path = `expect.effects[${i}]`;
+    const { kind, ...fields } = asObject(item, path, fail);
+    const schema = world.recordFields[kind as string];
+    if (!schema) fail(`${path}.kind`, `must be one of the ${world.name} record kinds: ${Object.keys(world.recordFields).join(", ")}`);
+    for (const [field, value] of Object.entries(fields)) {
+      const type = schema[field];
+      if (!type) fail(`${path}.${field}`, `is not a ${kind} field; known fields: ${Object.keys(schema).join(", ")}`);
+      const actual = Array.isArray(value) ? "array" : value === null ? "null" : typeof value;
+      if (actual !== type) fail(`${path}.${field}`, `must be a ${type} (got ${actual})`);
+    }
+    return { kind: kind as string, fields };
+  });
+  let answerAmountCents: number | undefined;
+  if (e.answer !== undefined) {
+    const answer = asObject(e.answer, "expect.answer", fail);
+    allowKeys(answer, "expect.answer", ["amount_cents"], fail);
+    if (!(Number.isSafeInteger(answer.amount_cents) && (answer.amount_cents as number) >= 0)) {
+      fail("expect.answer.amount_cents", "must be a non-negative integer");
+    }
+    answerAmountCents = answer.amount_cents as number;
+  }
+  if (effects.length === 0 && answerAmountCents === undefined) {
+    fail("expect", "must list at least one effect or an answer; omit expect for tasks the agent should refuse");
+  }
+  return { effects, ...(answerAmountCents === undefined ? {} : { answerAmountCents }) };
+}
+
+function parseExpectedVerdicts(doc: Raw, fail: Fail): Record<string, Verdict> {
+  const map = asObject(doc.expected_verdicts ?? {}, "expected_verdicts", fail);
+  const result: Record<string, Verdict> = {};
+  for (const [agent, verdict] of Object.entries(map)) {
+    if (!Object.hasOwn(AGENTS, agent)) fail(`expected_verdicts.${agent}`, `is not a scripted agent: ${Object.keys(AGENTS).join(", ")}`);
+    if (!VERDICTS.includes(verdict as Verdict)) fail(`expected_verdicts.${agent}`, `must be one of: ${VERDICTS.join(", ")}`);
+    result[agent] = verdict as Verdict;
+  }
+  const naive = doc.expected_naive_verdict;
+  if (naive !== undefined) {
+    if (!VERDICTS.includes(naive as Verdict)) fail("expected_naive_verdict", `must be one of: ${VERDICTS.join(", ")}`);
+    if (result["naive-retry"] && result["naive-retry"] !== naive) fail("expected_naive_verdict", "conflicts with expected_verdicts.naive-retry");
+    result["naive-retry"] = naive as Verdict;
+  }
+  return result;
+}
+
+function asObject(value: unknown, path: string, fail: Fail): Raw {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) fail(path, "must be a mapping");
+  return value as Raw;
+}
+
+function allowKeys(obj: Raw, path: string, allowed: string[], fail: Fail): void {
+  for (const key of Object.keys(obj)) {
+    if (!allowed.includes(key)) {
+      fail(path === "(root)" ? key : `${path}.${key}`, allowed.length ? `is not a known key (expected one of: ${allowed.join(", ")})` : "is not allowed here");
+    }
+  }
 }
 
 export function loadScenarioFile(path: string): Scenario {
   const text = readFileSync(path, "utf8");
-  const raw = (path.endsWith(".json") ? JSON.parse(text) : parseYaml(text)) as RawScenario;
-  return normalize(raw);
+  let raw: unknown;
+  try {
+    raw = path.endsWith(".json") ? JSON.parse(text) : parseYaml(text);
+  } catch (err) {
+    throw new Error(`${path}: cannot parse: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return parseScenario(raw, path);
 }
 
-export function loadAllScenarios(
-  root: string | string[] = bundledScenariosDir()
-): Scenario[] {
-  const roots = Array.isArray(root) ? root : [root];
+/** Loads every .yaml, .yml, and .json file under the given directories. Scenario ids must be unique. */
+export function loadAllScenarios(root: string | string[] = bundledScenariosDir()): Scenario[] {
   const byId = new Map<string, Scenario>();
-  for (const r of roots) {
-    walk(r, (file) => {
-      if (file.endsWith(".yaml") || file.endsWith(".yml") || file.endsWith(".json")) {
-        const s = loadScenarioFile(file);
-        byId.set(s.id, s);
-      }
+  for (const dir of Array.isArray(root) ? root : [root]) {
+    if (!existsSync(dir) || !statSync(dir).isDirectory()) throw new Error(`Scenario directory not found: ${dir}`);
+    walk(dir, (file) => {
+      if (!/\.(ya?ml|json)$/.test(file)) return;
+      const scenario = loadScenarioFile(file);
+      const previous = byId.get(scenario.id);
+      if (previous) throw new Error(`Duplicate scenario id "${scenario.id}" in ${previous.source} and ${file}`);
+      byId.set(scenario.id, scenario);
     });
   }
-  return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
+  return [...byId.values()].sort((a, b) => (a.id < b.id ? -1 : 1));
 }
 
-export function findScenarios(opts: {
-  id?: string;
-  tag?: string;
-  root?: string | string[];
-}): Scenario[] {
+/**
+ * Selects scenarios. An exact id wins; otherwise an id matches when the selector equals its
+ * leading or trailing path segments ("payments" or "rate-limit" or "payments/rate-limit").
+ */
+export function findScenarios(opts: { id?: string; tag?: string; root?: string | string[] }): Scenario[] {
   const all = loadAllScenarios(opts.root);
-  return all.filter((s) => {
-    if (opts.id) {
-      if (s.id !== opts.id && !s.id.endsWith("/" + opts.id) && !s.id.includes(opts.id)) {
-        return false;
-      }
-    }
-    if (opts.tag && !s.tags.includes(opts.tag)) return false;
-    return true;
-  });
+  const selector = opts.id?.replace(/^\/+|\/+$/g, "");
+  const exact = selector ? all.filter((s) => s.id === selector) : [];
+  const byId = selector
+    ? exact.length > 0
+      ? exact
+      : all.filter((s) => s.id.startsWith(`${selector}/`) || s.id.endsWith(`/${selector}`))
+    : all;
+  return opts.tag ? byId.filter((s) => s.tags.includes(opts.tag!)) : byId;
 }
 
 function walk(dir: string, visit: (file: string) => void, visited = new Set<string>()): void {
-  if (!existsSync(dir)) return;
   const real = realpathSync(dir);
   if (visited.has(real)) return;
   visited.add(real);
-  for (const name of readdirSync(dir)) {
-    const p = join(dir, name);
-    const st = statSync(p);
-    if (st.isDirectory()) walk(p, visit, visited);
-    else visit(p);
+  for (const name of readdirSync(dir).sort()) {
+    if (name.startsWith(".")) continue;
+    const path = join(dir, name);
+    if (statSync(path).isDirectory()) walk(path, visit, visited);
+    else visit(path);
   }
 }

@@ -1,4 +1,4 @@
-import type { World, WorldTool } from "./types.js";
+import { readIdempotencyKey, type World, type WorldTool } from "./types.js";
 
 export interface LedgerEntry {
   refundId: string;
@@ -11,10 +11,6 @@ export interface LedgerEntry {
 interface PaymentsState {
   ledger: LedgerEntry[];
   seq: number;
-}
-
-function cloneState(s: PaymentsState): PaymentsState {
-  return { ledger: s.ledger.map((e) => ({ ...e })), seq: s.seq };
 }
 
 export function createPaymentsWorld(): World {
@@ -49,105 +45,72 @@ export function createPaymentsWorld(): World {
     },
   ];
 
+  const view = (e: LedgerEntry) => ({
+    refund_id: e.refundId,
+    order_id: e.orderId,
+    amount_cents: e.amountCents,
+    status: "succeeded",
+  });
+
   return {
     name: "payments",
-    description: "Stateful payments ledger with refunds and idempotency keys.",
+    description: "Refund ledger. create_refund deduplicates by idempotency key.",
     tools,
+    recordFields: {
+      refund: { order_id: "string", amount_cents: "number", idempotency_key: "string" },
+    },
     reset() {
       state = { ledger: [], seq: 0 };
     },
     snapshot() {
-      return cloneState(state) as unknown as Record<string, unknown>;
-    },
-    restore(snap) {
-      const s = snap as unknown as PaymentsState;
-      state = cloneState({ ledger: s.ledger ?? [], seq: s.seq ?? 0 });
+      return structuredClone(state) as unknown as Record<string, unknown>;
     },
     invoke(tool, args) {
       if (tool === "create_refund") {
         const orderId = String(args.order_id ?? "");
         const amountCents = Number(args.amount_cents);
-        const rawKey = args.idempotency_key;
-        const idempotencyKey =
-          rawKey === undefined || rawKey === null ? undefined : String(rawKey).trim();
-        if (rawKey !== undefined && rawKey !== null && !idempotencyKey) {
-          throw new Error("create_refund idempotency_key must be non-empty when provided");
-        }
+        const idempotencyKey = readIdempotencyKey(tool, args);
         if (!orderId || !Number.isFinite(amountCents) || amountCents < 0) {
           throw new Error("create_refund requires order_id and a non-negative amount_cents");
         }
-        if (idempotencyKey) {
-          const existing = state.ledger.find((e) => e.idempotencyKey === idempotencyKey);
-          if (existing) {
-            return {
-              refund_id: existing.refundId,
-              order_id: existing.orderId,
-              amount_cents: existing.amountCents,
-              status: "succeeded",
-              deduplicated: true,
-            };
-          }
-        }
+        const existing = idempotencyKey
+          ? state.ledger.find((e) => e.idempotencyKey === idempotencyKey)
+          : undefined;
+        if (existing) return { ...view(existing), deduplicated: true };
         state.seq += 1;
-        const refundId = `re_${state.seq}_${orderId}`;
-        state.ledger.push({
-          refundId,
+        const entry: LedgerEntry = {
+          refundId: `re_${state.seq}_${orderId}`,
           orderId,
           amountCents,
           idempotencyKey,
           atSeq: state.seq,
-        });
-        return {
-          refund_id: refundId,
-          order_id: orderId,
-          amount_cents: amountCents,
-          status: "succeeded",
-          deduplicated: false,
         };
+        state.ledger.push(entry);
+        return { ...view(entry), deduplicated: false };
       }
       if (tool === "get_refund") {
         const id = String(args.refund_id ?? "");
         const hit = state.ledger.find((e) => e.refundId === id);
         if (!hit) throw new Error(`refund not found: ${id}`);
-        return {
-          refund_id: hit.refundId,
-          order_id: hit.orderId,
-          amount_cents: hit.amountCents,
-          status: "succeeded",
-        };
+        return view(hit);
       }
       if (tool === "list_refunds") {
         const orderId = String(args.order_id ?? "");
-        return state.ledger
-          .filter((e) => e.orderId === orderId)
-          .map((e) => ({
-            refund_id: e.refundId,
-            order_id: e.orderId,
-            amount_cents: e.amountCents,
-            status: "succeeded",
-          }));
+        return state.ledger.filter((e) => e.orderId === orderId).map(view);
       }
       throw new Error(`unknown tool: ${tool}`);
     },
-    diff(before, after) {
-      const b = before as unknown as PaymentsState;
-      const a = after as unknown as PaymentsState;
-      const lines: string[] = [];
-      const beforeIds = new Set((b.ledger ?? []).map((e) => e.refundId));
-      for (const e of a.ledger ?? []) {
-        if (!beforeIds.has(e.refundId)) {
-          lines.push(
-            `+ refund ${e.refundId} order=${e.orderId} amount_cents=${e.amountCents}` +
-              (e.idempotencyKey ? ` idem=${e.idempotencyKey}` : " (no idempotency key)")
-          );
-        }
-      }
-      if ((a.ledger?.length ?? 0) > (b.ledger?.length ?? 0) + 1) {
-        lines.push(
-          `!! ledger grew by ${(a.ledger?.length ?? 0) - (b.ledger?.length ?? 0)} entries`
-        );
-      }
-      return lines;
+    records(snapshot) {
+      const ledger = (snapshot as unknown as PaymentsState).ledger ?? [];
+      return ledger.map((e) => ({
+        kind: "refund",
+        id: e.refundId,
+        fields: {
+          order_id: e.orderId,
+          amount_cents: e.amountCents,
+          ...(e.idempotencyKey ? { idempotency_key: e.idempotencyKey } : {}),
+        },
+      }));
     },
   };
 }

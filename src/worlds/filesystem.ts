@@ -1,4 +1,4 @@
-import type { World, WorldTool } from "./types.js";
+import { readIdempotencyKey, type World, type WorldTool } from "./types.js";
 
 export interface FsFile {
   path: string;
@@ -9,38 +9,30 @@ export interface FsFile {
 
 interface FsState {
   files: FsFile[];
-  seq: number;
-  blockedWrites: number;
 }
 
-const FORBIDDEN_PREFIXES = ["/etc/", "/root/", "/sys/", "/proc/", "~/", "../"];
-
-function normalizePath(raw: string): string {
-  return raw.replace(/\\/g, "/").trim();
+function normalizePath(raw: unknown): string {
+  return String(raw ?? "").replace(/\\/g, "/").trim();
 }
 
-function isForbidden(path: string): boolean {
-  const p = normalizePath(path);
-  if (!p || p.includes("\0") || p.includes("..")) return true;
-  if (p.startsWith("/") || /^[a-zA-Z]:/.test(p)) return true;
-  return FORBIDDEN_PREFIXES.some((prefix) => p.startsWith(prefix) || p === prefix.slice(0, -1));
-}
-
-function cloneState(s: FsState): FsState {
-  return {
-    seq: s.seq,
-    blockedWrites: s.blockedWrites,
-    files: s.files.map((f) => ({ ...f })),
-  };
+/** Only relative paths inside the workspace are allowed. */
+function escapesWorkspace(path: string): boolean {
+  return (
+    path.includes("\0") ||
+    path.startsWith("/") ||
+    path.startsWith("~") ||
+    /^[a-zA-Z]:/.test(path) ||
+    path.split("/").includes("..")
+  );
 }
 
 export function createFilesystemWorld(): World {
-  let state: FsState = { files: [], seq: 0, blockedWrites: 0 };
+  let state: FsState = { files: [] };
 
   const tools: WorldTool[] = [
     {
       name: "write_file",
-      description: "Write content to a path under the workspace. Rejects path traversal.",
+      description: "Write content to a path under the workspace. Rejects paths outside it.",
       mutating: true,
       parameters: {
         path: { type: "string", description: "Relative workspace path", required: true },
@@ -66,68 +58,48 @@ export function createFilesystemWorld(): World {
 
   return {
     name: "filesystem",
-    description: "Sandbox filesystem with write/read and path-traversal guards.",
+    description: "Workspace files. write_file rejects absolute and parent-relative paths.",
     tools,
+    recordFields: {
+      file: { path: "string", content: "string", idempotency_key: "string" },
+    },
     reset() {
-      state = { files: [], seq: 0, blockedWrites: 0 };
+      state = { files: [] };
     },
     snapshot() {
-      return cloneState(state) as unknown as Record<string, unknown>;
-    },
-    restore(snap) {
-      state = cloneState(snap as unknown as FsState);
+      return structuredClone(state) as unknown as Record<string, unknown>;
     },
     invoke(tool, args) {
       if (tool === "write_file") {
-        const path = normalizePath(String(args.path ?? ""));
+        const path = normalizePath(args.path);
         const content = String(args.content ?? "");
-        const idem =
-          args.idempotency_key !== undefined ? String(args.idempotency_key) : undefined;
+        const idempotencyKey = readIdempotencyKey(tool, args);
         if (!path) throw new Error("write_file requires path");
-        if (isForbidden(path)) {
-          state.blockedWrites += 1;
-          throw new Error(`EACCES: path escapes workspace: ${path}`);
-        }
-        if (idem) {
-          const existing = state.files.find((f) => f.idempotencyKey === idem);
-          if (existing) {
-            return {
-              path: existing.path,
-              bytes: existing.content.length,
-              deduplicated: true,
-              overwritten: existing.overwritten,
-            };
-          }
+        if (escapesWorkspace(path)) throw new Error(`EACCES: path escapes workspace: ${path}`);
+        const existing = idempotencyKey
+          ? state.files.find((f) => f.idempotencyKey === idempotencyKey)
+          : undefined;
+        if (existing) {
+          return {
+            path: existing.path,
+            bytes: existing.content.length,
+            deduplicated: true,
+            overwritten: existing.overwritten,
+          };
         }
         const prior = state.files.find((f) => f.path === path);
         if (prior) {
           prior.content = content;
           prior.overwritten = true;
-          if (idem) prior.idempotencyKey = idem;
-          return {
-            path,
-            bytes: content.length,
-            deduplicated: false,
-            overwritten: true,
-          };
+          if (idempotencyKey) prior.idempotencyKey = idempotencyKey;
+        } else {
+          state.files.push({ path, content, overwritten: false, idempotencyKey });
         }
-        state.seq += 1;
-        state.files.push({
-          path,
-          content,
-          overwritten: false,
-          idempotencyKey: idem,
-        });
-        return {
-          path,
-          bytes: content.length,
-          deduplicated: false,
-          overwritten: false,
-        };
+        return { path, bytes: content.length, deduplicated: false, overwritten: Boolean(prior) };
       }
       if (tool === "read_file") {
-        const path = normalizePath(String(args.path ?? ""));
-        if (isForbidden(path)) throw new Error(`EACCES: path escapes workspace: ${path}`);
+        const path = normalizePath(args.path);
+        if (escapesWorkspace(path)) throw new Error(`EACCES: path escapes workspace: ${path}`);
         const file = state.files.find((f) => f.path === path);
         if (!file) throw new Error(`ENOENT: ${path}`);
         return { path: file.path, content: file.content };
@@ -141,23 +113,17 @@ export function createFilesystemWorld(): World {
       }
       throw new Error(`unknown tool: ${tool}`);
     },
-    diff(before, after) {
-      const b = before as unknown as FsState;
-      const a = after as unknown as FsState;
-      const lines: string[] = [];
-      const beforePaths = new Map((b.files ?? []).map((f) => [f.path, f]));
-      for (const f of a.files ?? []) {
-        const prev = beforePaths.get(f.path);
-        if (!prev) {
-          lines.push(`+ file ${f.path} bytes=${f.content.length}`);
-        } else if (prev.content !== f.content) {
-          lines.push(`~ file ${f.path} overwritten bytes=${f.content.length}`);
-        }
-      }
-      if ((a.blockedWrites ?? 0) > (b.blockedWrites ?? 0)) {
-        lines.push(`! blocked_writes +${(a.blockedWrites ?? 0) - (b.blockedWrites ?? 0)}`);
-      }
-      return lines;
+    records(snapshot) {
+      const files = (snapshot as unknown as FsState).files ?? [];
+      return files.map((f) => ({
+        kind: "file",
+        id: f.path,
+        fields: {
+          path: f.path,
+          content: f.content,
+          ...(f.idempotencyKey ? { idempotency_key: f.idempotencyKey } : {}),
+        },
+      }));
     },
   };
 }

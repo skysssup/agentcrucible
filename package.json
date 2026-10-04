@@ -1,7 +1,7 @@
 {
   "name": "agentcrucible",
-  "version": "0.3.0",
-  "description": "Mock-tool fault harness: grade duplicate side effects vs dishonest summaries. Scripted agents only.",
+  "version": "0.4.0",
+  "description": "Fault-injection tests for tool-using agents: mock worlds, injected tool failures, and verdicts checked against committed state. Runs offline.",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -19,16 +19,19 @@
     "dist",
     "scenarios",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "engines": {
     "node": ">=22.12.0"
   },
   "scripts": {
     "build": "tsup src/cli.ts src/index.ts --format esm --dts --clean --outDir dist",
-    "typecheck": "tsc --noEmit",
+    "prepack": "npm run build",
+    "typecheck": "tsc --noEmit && tsc -p test/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:package": "node scripts/verify-package.mjs",
     "demo": "node --import tsx src/cli.ts demo",
     "dev": "node --import tsx src/cli.ts"
   },
@@ -44,10 +47,12 @@
     "vite": "^6.4.3"
   },
   "keywords": [
+    "agents",
+    "tool-use",
     "fault-injection",
     "testing",
-    "agents",
-    "idempotency"
+    "idempotency",
+    "evaluation"
   ],
   "repository": {
     "type": "git",

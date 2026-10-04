@@ -1,56 +1,77 @@
-/** Core domain types for AgentCrucible. */
+/** Verdicts from most to least severe. */
+export const VERDICTS = [
+  "HARMFUL_ACTION",
+  "SILENT_FAILURE",
+  "DEGRADED",
+  "INCONCLUSIVE",
+  "SAFE_FAILURE",
+  "SAFE_SUCCESS",
+] as const;
 
-export type Verdict =
-  | "SAFE_SUCCESS"
-  | "SAFE_FAILURE"
-  | "DEGRADED"
-  | "SILENT_FAILURE"
-  | "HARMFUL_ACTION";
+export type Verdict = (typeof VERDICTS)[number];
 
 export const VERDICT_SEVERITY: Record<Verdict, number> = {
-  HARMFUL_ACTION: 5,
-  SILENT_FAILURE: 4,
-  DEGRADED: 3,
+  HARMFUL_ACTION: 6,
+  SILENT_FAILURE: 5,
+  DEGRADED: 4,
+  INCONCLUSIVE: 3,
   SAFE_FAILURE: 2,
   SAFE_SUCCESS: 1,
 };
 
-export type FaultKind =
-  | "timeout_after_commit"
-  | "timeout"
-  | "omission"
-  | "silent_wrong_data"
-  | "rate_limit_429"
-  | "malformed_response"
-  | "retry_storm"
-  | "auth_expiry"
-  | "stale_cache"
-  | "schema_drift";
+export const FAULT_KINDS = [
+  "timeout_after_commit",
+  "timeout",
+  "omission",
+  "silent_wrong_data",
+  "rate_limit_429",
+  "malformed_response",
+  "retry_storm",
+  "auth_expiry",
+  "stale_cache",
+  "schema_drift",
+] as const;
+
+export type FaultKind = (typeof FAULT_KINDS)[number];
 
 export interface FaultSpec {
-  /** Tool name to target, or "*" for any. */
+  /** Tool name to target, or "*" for any tool. */
   target: string;
   kind: FaultKind;
-  /** 1-indexed call number for this tool. Omit to apply on every matching call. */
+  /** 1-indexed call number for the targeted tool. Omit (with onCallRange) to apply on every matching call. */
   onCall?: number;
-  /** Inclusive range alternative to onCall — used for property-based fuzzing. */
+  /** Inclusive range; one call index in it is chosen per trial from the seed. */
   onCallRange?: [number, number];
-  /** Probability 0..1; deterministically resolved from seed. */
+  /** Probability 0..1 that a matching call is faulted, resolved from the seed. */
   probability?: number;
   params?: Record<string, unknown>;
 }
 
 export interface PolicySpec {
-  /** Side-effecting tools must carry an idempotency key. */
+  /** Committed mutating calls must carry an idempotency key. */
   requireIdempotency?: boolean;
-  /** Max times a mutating tool may be invoked for one task (default unlimited). */
+  /** Maximum number of committed, non-deduplicated mutating calls. */
   maxMutatingCalls?: number;
-  /** Agent must disclose uncertainty when a tool error/timeout occurs. */
+  /** The final answer must disclose uncertainty when any tool call returned an error. */
   mustDiscloseUncertainty?: boolean;
-  /** Agent must not claim success if world state disagrees. */
+  /** The final answer must not claim success after tool errors without acknowledging them. */
   forbidFalseSuccess?: boolean;
-  /** Mutating retries without idempotency are forbidden. */
+  /** Repeating a mutating call so that it commits again is forbidden. */
   forbidBlindRetry?: boolean;
+}
+
+/** A committed change the task requires, matched against effect fields. */
+export interface EffectExpectation {
+  kind: string;
+  /** Fields that must match; nested objects match as subsets. */
+  fields: Record<string, unknown>;
+}
+
+export interface ScenarioExpectations {
+  /** Every committed change a correct run makes. Each must occur exactly once; any other change is unexpected. */
+  effects: EffectExpectation[];
+  /** Amount in cents the final answer must state, for tasks that ask a question. */
+  answerAmountCents?: number;
 }
 
 export interface Scenario {
@@ -62,29 +83,39 @@ export interface Scenario {
   tags: string[];
   faults: FaultSpec[];
   policies: PolicySpec;
-  /** Expected worst-case verdict when run against a naive-retry agent (docs/CI smoke). */
-  expectedNaiveVerdict?: Verdict;
-}
-
-export interface ToolCallRecord {
-  id: string;
-  tool: string;
-  args: Record<string, unknown>;
-  callIndex: number;
-  /** Wall-clock-ish sequence number across all tools. */
-  seq: number;
-  /** Result the agent actually received (may be faulted). */
-  observed: ToolObservation;
-  /** What the world actually did before any fault masking. */
-  committed: boolean;
-  committedResult?: unknown;
-  faultApplied?: FaultKind;
-  worldSnapshotAfter: Record<string, unknown>;
+  /** Outcome checks. Without them a run can never be graded SAFE_SUCCESS. */
+  expect?: ScenarioExpectations;
+  /** Aggregate verdict each listed scripted agent should receive with the default seed. */
+  expectedVerdicts: Record<string, Verdict>;
+  /** File the scenario was loaded from, when loaded from disk. */
+  source?: string;
 }
 
 export type ToolObservation =
   | { ok: true; result: unknown }
   | { ok: false; error: string; code?: string };
+
+export interface ToolCallRecord {
+  id: string;
+  tool: string;
+  /** True for tools that can change durable state. */
+  mutating: boolean;
+  args: Record<string, unknown>;
+  /** 1-indexed call number for this tool within the trial. */
+  callIndex: number;
+  /** Order of the call across all tools within the trial. */
+  seq: number;
+  /** What the agent received, after any fault. */
+  observed: ToolObservation;
+  /** True when the world executed the call (state may have changed). */
+  committed: boolean;
+  /** What the world actually returned, before any fault changed it. */
+  committedResult?: unknown;
+  faultApplied?: FaultKind;
+  /** Index of the scenario fault that fired on this call. */
+  faultIndex?: number;
+  worldSnapshotAfter: Record<string, unknown>;
+}
 
 export interface AgentMessage {
   role: "assistant" | "user" | "system";
@@ -104,6 +135,17 @@ export interface TrialTrace {
   agentId: string;
 }
 
+/** A durable change between two world snapshots. */
+export interface Effect {
+  kind: string;
+  /** Refund id, message id, row id, ticket id, or file path. */
+  id: string;
+  fields: Record<string, unknown>;
+  summary: string;
+  /** Calls after which this record changed. */
+  callIds: string[];
+}
+
 export interface Evidence {
   kind: string;
   summary: string;
@@ -118,32 +160,54 @@ export interface Finding {
   evidence: Evidence[];
 }
 
+export interface TrialOutcome {
+  /**
+   * met: the committed state and the final answer match the scenario's expectations.
+   * not_met: they do not.
+   * unchecked: the scenario declares no expectations.
+   */
+  status: "met" | "not_met" | "unchecked";
+  summary: string;
+}
+
 export interface GradedTrial {
   trace: TrialTrace;
+  /** Committed changes between the start and end of the trial. */
+  effects: Effect[];
+  outcome: TrialOutcome;
+  /** Findings sorted from most to least severe; the first one decides the verdict. */
   findings: Finding[];
   verdict: Verdict;
   reason: string;
+  /** The subset of findings produced by scenario policies. */
   policyViolations: Finding[];
 }
 
 export interface TrialStats {
   total: number;
   byVerdict: Record<Verdict, number>;
-  /** Fraction of trials that produced a different verdict than the mode. */
+  /** Fraction of trials whose verdict differs from the most common one. */
   flakyRate: number;
   modeVerdict: Verdict;
-  /** Wilson score lower bound for "critical" (HARMFUL|SILENT) rate at 95%. */
+  /** Wilson score 95% lower bound for the rate of HARMFUL_ACTION or SILENT_FAILURE trials. */
   criticalRateLower95: number;
+  /** Trials in which at least one scenario fault fired. */
+  trialsWithFault: number;
 }
 
 export interface RunReport {
+  toolVersion: string;
   scenarioId: string;
   world: string;
   agentId: string;
   seed: string;
+  scenario: Scenario;
   trials: GradedTrial[];
   stats: TrialStats;
+  /** Worst verdict across trials. */
   aggregateVerdict: Verdict;
+  /** Limits of this run that the verdict alone does not show. */
+  warnings: string[];
   startedAt: string;
   finishedAt: string;
   durationMs: number;

@@ -1,101 +1,44 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { parseTrials, runScenario } from "../src/runner.js";
+import { MAX_TRIALS, parseTrials, runScenario } from "../src/runner.js";
 import { findScenarios } from "../src/scenarios.js";
-import { writeJUnitReport } from "../src/report.js";
 
 describe("parseTrials", () => {
-  it("accepts positive integers", () => {
+  it("accepts positive integers as numbers or digit strings", () => {
     expect(parseTrials(1)).toBe(1);
     expect(parseTrials("3")).toBe(3);
+    expect(parseTrials(MAX_TRIALS)).toBe(MAX_TRIALS);
   });
 
-  it("rejects zero, negative, non-integer, non-finite", () => {
-    for (const bad of [0, -1, 1.5, NaN, Infinity, "abc", ""]) {
-      expect(() => parseTrials(bad)).toThrow(/positive integer/i);
-    }
+  it.each([0, -1, 1.5, NaN, Infinity, "abc", "", "1e3", "0x10", "2.0", MAX_TRIALS + 1, null, undefined])("rejects %j", (bad) => {
+    expect(() => parseTrials(bad)).toThrow(/must be a positive integer no greater than 10000/);
   });
 });
 
-describe("runScenario trials edge", () => {
+describe("runScenario input checks", () => {
+  const scenario = () => findScenarios({ id: "payments/timeout-after-commit" })[0];
+
   it("throws before running when trials is zero", async () => {
-    const scenarios = findScenarios({ id: "payments/timeout-after-commit" });
-    expect(scenarios.length).toBe(1);
-    await expect(
-      runScenario({ scenario: scenarios[0], agentId: "honest-stop", trials: 0 })
-    ).rejects.toThrow(/positive integer/i);
+    await expect(runScenario({ scenario: scenario(), agentId: "honest-stop", trials: 0 })).rejects.toThrow(/positive integer/);
   });
-});
 
-describe("junit per-scenario files", () => {
-  it("writes distinct junit files so multi-scenario runs do not overwrite", () => {
-    const dir = mkdtempSync(join(tmpdir(), "ac-junit-"));
-    try {
-      const a = writeJUnitReport(
-        {
-          scenarioId: "scenario-a",
-          agentId: "naive-retry",
-          seed: "s",
-          world: "payments",
-          durationMs: 1,
-          aggregateVerdict: "SAFE_SUCCESS",
-          stats: {
-            total: 1,
-            byVerdict: { SAFE_SUCCESS: 1 },
-            flakyRate: 0,
-            criticalRateLower95: 0,
-            modeVerdict: "SAFE_SUCCESS",
-          },
-          trials: [
-            {
-              verdict: "SAFE_SUCCESS",
-              reason: "ok",
-              findings: [],
-              trace: { trialIndex: 0, finalAnswer: "ok", calls: [] },
-            },
-          ],
-          startedAt: new Date().toISOString(),
-          finishedAt: new Date().toISOString(),
-        } as never,
-        dir
-      );
-      const b = writeJUnitReport(
-        {
-          scenarioId: "scenario-b",
-          agentId: "naive-retry",
-          seed: "s",
-          world: "payments",
-          durationMs: 1,
-          aggregateVerdict: "HARMFUL_ACTION",
-          stats: {
-            total: 1,
-            byVerdict: { HARMFUL_ACTION: 1 },
-            flakyRate: 0,
-            criticalRateLower95: 1,
-            modeVerdict: "HARMFUL_ACTION",
-          },
-          trials: [
-            {
-              verdict: "HARMFUL_ACTION",
-              reason: "dup",
-              findings: [],
-              trace: { trialIndex: 0, finalAnswer: "ok", calls: [] },
-            },
-          ],
-          startedAt: new Date().toISOString(),
-          finishedAt: new Date().toISOString(),
-        } as never,
-        dir
-      );
-      expect(a).not.toBe(b);
-      expect(a.endsWith("scenario-a.junit.xml")).toBe(true);
-      expect(b.endsWith("scenario-b.junit.xml")).toBe(true);
-      expect(existsSync(join(dir, "junit.xml"))).toBe(false);
-      expect(readFileSync(b, "utf8")).toContain("HARMFUL_ACTION");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+  it.each([
+    [[0, 2]],
+    [[3, 1]],
+    [[1.5, 2]],
+    [[1]],
+  ])("rejects the fuzz range %j", async (range) => {
+    await expect(runScenario({ scenario: scenario(), agentId: "honest-stop", fuzzCallRange: range as [number, number] })).rejects.toThrow(/Invalid fuzz call range/);
+  });
+
+  it("rejects an unknown agent and a missing agent", async () => {
+    await expect(runScenario({ scenario: scenario(), agentId: "robot" })).rejects.toThrow('Unknown agent "robot". Available: naive-retry');
+    await expect(runScenario({ scenario: scenario() })).rejects.toThrow("runScenario needs agentId");
+  });
+
+  it("does not modify the scenario it is given", async () => {
+    const s = scenario();
+    const before = structuredClone(s);
+    await runScenario({ scenario: s, agentId: "naive-retry", trials: 3, fuzzCallRange: [1, 3] });
+    expect(s).toEqual(before);
   });
 });

@@ -1,211 +1,248 @@
-import { writeFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
-import { BOLD, DIM, RESET, verdictColor } from "./verdict.js";
-import { isCritical } from "./verdict.js";
-import type { RunReport } from "./types.js";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
+import type { GradedTrial, RunReport, ToolCallRecord, Verdict } from "./types.js";
+import { VERDICTS } from "./types.js";
+import { atLeast } from "./verdict.js";
 
-export function printReport(report: RunReport): void {
-  const vColor = verdictColor(report.aggregateVerdict);
-  console.log();
-  console.log(`${BOLD}AgentCrucible${RESET} · ${report.scenarioId}`);
-  console.log(`${DIM}world=${report.world ?? "?"}  agent=${report.agentId}  seed=${report.seed}  trials=${report.stats.total}  ${report.durationMs}ms${RESET}`);
-  console.log();
-  console.log(
-    `Aggregate verdict: ${vColor}${BOLD}${report.aggregateVerdict}${RESET}`
+const ANSI: Record<Verdict | "bold" | "dim", string> = {
+  HARMFUL_ACTION: "\x1b[31m",
+  SILENT_FAILURE: "\x1b[35m",
+  DEGRADED: "\x1b[33m",
+  INCONCLUSIVE: "\x1b[34m",
+  SAFE_FAILURE: "\x1b[36m",
+  SAFE_SUCCESS: "\x1b[32m",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+};
+
+/** Colors for a terminal: on for a TTY unless NO_COLOR is set; FORCE_COLOR turns them on anywhere. */
+export function shouldColor(stream: { isTTY?: boolean } = process.stdout): boolean {
+  const force = process.env.FORCE_COLOR;
+  if (force !== undefined && force !== "" && force !== "0") return true;
+  return Boolean(stream.isTTY) && !process.env.NO_COLOR && process.env.TERM !== "dumb";
+}
+
+export type Paint = (style: keyof typeof ANSI, text: string) => string;
+
+export function painter(color: boolean): Paint {
+  return (style, text) => (color ? `${ANSI[style]}${text}\x1b[0m` : text);
+}
+
+/** The worst trial: the first one whose verdict equals the aggregate verdict. */
+export function worstTrial(report: RunReport): GradedTrial | undefined {
+  return report.trials.find((t) => t.verdict === report.aggregateVerdict) ?? report.trials[0];
+}
+
+export function formatReport(report: RunReport, color = false): string {
+  const paint = painter(color);
+  const s = report.scenario;
+  const lines: string[] = [];
+  const trials = report.stats.total;
+  lines.push(
+    `${paint("bold", report.scenarioId)}  ${paint("dim", `world ${report.world} · agent ${report.agentId} · seed ${report.seed} · ${trials} trial${trials === 1 ? "" : "s"}`)}`
   );
-  console.log(`${DIM}${report.trials[0]?.reason ?? ""}${RESET}`);
-  console.log();
+  lines.push(`  Task:    ${s.task}`);
+  lines.push(`  Faults:  ${s.faults.length ? s.faults.map(describeFault).join("; ") : "none"}`);
+  lines.push(`  Expect:  ${describeExpect(report)}`);
+  const worst = worstTrial(report);
+  lines.push("");
+  lines.push(`  Verdict: ${paint("bold", paint(report.aggregateVerdict, report.aggregateVerdict))}`);
+  if (worst) lines.push(`  ${worst.reason}`);
 
-  // Verdict histogram
-  console.log("Trial breakdown:");
-  for (const [verdict, n] of Object.entries(report.stats.byVerdict)) {
-    if (n === 0) continue;
-    const bar = "█".repeat(Math.max(1, Math.round((n / report.stats.total) * 20)));
-    console.log(
-      `  ${verdictColor(verdict as never)}${verdict.padEnd(16)}${RESET} ${String(n).padStart(3)}  ${bar}`
+  if (trials > 1) {
+    const counts = VERDICTS.filter((v) => report.stats.byVerdict[v] > 0).map((v) => `${report.stats.byVerdict[v]} ${paint(v, v)}`);
+    lines.push("");
+    lines.push(`  Trials:  ${counts.join(", ")}`);
+    lines.push(
+      `           flaky ${pct(report.stats.flakyRate)} · critical-rate 95% lower bound ${pct(report.stats.criticalRateLower95)} · faults fired in ${report.stats.trialsWithFault}/${trials}`
     );
   }
-  console.log();
-  console.log(
-    `Flaky rate: ${(report.stats.flakyRate * 100).toFixed(1)}% · Critical rate ≥95% lower bound: ${(report.stats.criticalRateLower95 * 100).toFixed(1)}%`
-  );
-
-  // Evidence from first worst trial
-  const worst = [...report.trials].sort((a, b) => {
-    const order = ["HARMFUL_ACTION", "SILENT_FAILURE", "DEGRADED", "SAFE_FAILURE", "SAFE_SUCCESS"];
-    return order.indexOf(a.verdict) - order.indexOf(b.verdict);
-  })[0];
 
   if (worst) {
-    console.log();
-    console.log(`${BOLD}Evidence (trial ${worst.trace.trialIndex})${RESET}`);
-    for (const f of worst.findings.slice(0, 5)) {
-      console.log(`  • [${f.verdict}] ${f.rule}`);
-      console.log(`    ${f.reason}`);
+    lines.push("");
+    lines.push(`  ${paint("bold", `Trial ${worst.trace.trialIndex}`)}${trials > 1 ? " (first trial with the aggregate verdict)" : ""}`);
+    lines.push("    Tool calls:");
+    for (const line of formatCallLines(worst, paint)) lines.push(`      ${line}`);
+    lines.push(`    Final answer: ${JSON.stringify(worst.trace.finalAnswer)}`);
+    lines.push(`    Outcome check: ${worst.outcome.status.replace("_", " ")}${worst.outcome.summary ? ` (${worst.outcome.summary})` : ""}`);
+    lines.push("    Findings:");
+    for (const f of worst.findings) {
+      lines.push(`      ${paint(f.verdict, f.verdict.padEnd(14))} ${f.rule}`);
+      lines.push(`        ${f.reason}`);
       for (const e of f.evidence) {
-        console.log(`    ${DIM}↳ ${e.kind}: ${e.summary}${RESET}`);
-        if (e.callIds?.length) {
-          console.log(`      calls: ${e.callIds.join(", ")}`);
-        }
+        lines.push(`        ${paint("dim", `- ${e.summary}${e.callIds?.length ? ` [${e.callIds.join(", ")}]` : ""}`)}`);
       }
     }
-
-    console.log();
-    console.log(`${BOLD}Tool timeline${RESET}`);
-    for (const c of worst.trace.calls) {
-      const flag = c.faultApplied ? ` FAULT=${c.faultApplied}` : "";
-      const commit = c.committed ? "committed" : "no-commit";
-      const obs = c.observed.ok ? "ok" : `err:${c.observed.error}`;
-      console.log(
-        `  ${c.id}  ${c.tool}#${c.callIndex}  ${commit}  observed=${obs}${flag}`
-      );
-    }
-
-    console.log();
-    console.log(`${BOLD}Final answer${RESET}`);
-    console.log(`  ${worst.trace.finalAnswer}`);
   }
+
+  if (report.warnings.length) {
+    lines.push("");
+    lines.push("  Warnings:");
+    for (const w of report.warnings) lines.push(`    - ${w}`);
+  }
+  return lines.join("\n");
+}
+
+/** One line per tool call, each followed by the state changes it made. */
+export function formatCallLines(trial: GradedTrial, paint: Paint): string[] {
+  if (trial.trace.calls.length === 0) return ["(no tool calls)"];
+  const lines: string[] = [];
+  for (const c of trial.trace.calls) {
+    const saw = c.observed.ok ? `ok ${truncate(JSON.stringify(c.observed.result), 70)}` : `error ${c.observed.error}`;
+    const fault = c.faultApplied ? paint("dim", `  [fault: ${c.faultApplied}]`) : "";
+    lines.push(`${c.id} ${c.tool}#${c.callIndex}  ${callState(c)}  agent saw: ${saw}${fault}`);
+    for (const e of trial.effects.filter((e) => e.callIds.includes(c.id))) {
+      lines.push(`  ${paint("dim", "state:")} ${e.summary}`);
+    }
+  }
+  return lines;
+}
+
+export function printReport(report: RunReport): void {
+  console.log(formatReport(report, shouldColor(process.stdout)));
   console.log();
 }
 
 export function writeJsonReport(report: RunReport, outDir: string): string {
-  mkdirSync(outDir, { recursive: true });
-  const safe = encodeURIComponent(report.scenarioId);
-  const path = join(outDir, `${safe}.report.json`);
-  writeFileSync(path, JSON.stringify(report, null, 2));
-  return path;
+  return writeReportFile(outDir, report.scenarioId, ".report.json", JSON.stringify(report, null, 2));
 }
 
 export function writeHtmlReport(report: RunReport, outDir: string): string {
-  mkdirSync(outDir, { recursive: true });
-  const safe = encodeURIComponent(report.scenarioId);
-  const path = join(outDir, `${safe}.report.html`);
-  const order = ["HARMFUL_ACTION", "SILENT_FAILURE", "DEGRADED", "SAFE_FAILURE", "SAFE_SUCCESS"];
-  const worst = [...report.trials].sort(
-    (a, b) => order.indexOf(a.verdict) - order.indexOf(b.verdict),
-  )[0];
+  const worst = worstTrial(report);
   const rows = (worst?.trace.calls ?? [])
     .map((c) => {
-      const obs = c.observed.ok
-        ? `<code>${escapeHtml(JSON.stringify(c.observed.result))}</code>`
-        : `<span class="err">${escapeHtml(c.observed.error)}</span>`;
-      return `<tr>
-        <td>${escapeHtml(c.id)}</td>
-        <td>${escapeHtml(c.tool)}#${c.callIndex}</td>
-        <td>${c.committed ? "yes" : "no"}</td>
-        <td>${escapeHtml(c.faultApplied ?? "—")}</td>
-        <td>${obs}</td>
-      </tr>`;
+      const observed = c.observed.ok
+        ? `<code>${escapeMarkup(JSON.stringify(c.observed.result))}</code>`
+        : `<span class="err">${escapeMarkup(c.observed.error)}</span>`;
+      const changes = (worst?.effects ?? []).filter((e) => e.callIds.includes(c.id)).map((e) => escapeMarkup(e.summary)).join("<br>");
+      return `<tr><td>${escapeMarkup(c.id)}</td><td>${escapeMarkup(c.tool)}#${c.callIndex}</td><td>${escapeMarkup(callState(c))}</td><td>${escapeMarkup(c.faultApplied ?? "—")}</td><td>${observed}</td><td>${changes || "—"}</td></tr>`;
     })
     .join("\n");
-
   const findings = (worst?.findings ?? [])
     .map(
-      (f) => `<li><strong>${escapeHtml(f.verdict)}</strong> <code>${escapeHtml(f.rule)}</code>
-        <div>${escapeHtml(f.reason)}</div>
-        <ul>${f.evidence.map((e) => `<li>${escapeHtml(e.kind)}: ${escapeHtml(e.summary)}</li>`).join("")}</ul>
-      </li>`
+      (f) => `<li><span class="badge ${escapeMarkup(f.verdict)}">${escapeMarkup(f.verdict)}</span> <code>${escapeMarkup(f.rule)}</code>
+        <div>${escapeMarkup(f.reason)}</div>
+        <ul>${f.evidence.map((e) => `<li>${escapeMarkup(e.summary)}${e.callIds?.length ? ` <code>${escapeMarkup(e.callIds.join(", "))}</code>` : ""}</li>`).join("")}</ul></li>`
     )
     .join("\n");
+  const trialList = report.trials
+    .map((t) => `<li>trial ${t.trace.trialIndex}: <span class="badge ${escapeMarkup(t.verdict)}">${escapeMarkup(t.verdict)}</span> ${escapeMarkup(t.reason)}</li>`)
+    .join("\n");
+  const warnings = report.warnings.map((w) => `<li>${escapeMarkup(w)}</li>`).join("");
 
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
-<title>AgentCrucible — ${escapeHtml(report.scenarioId)}</title>
+<title>AgentCrucible — ${escapeMarkup(report.scenarioId)}</title>
 <style>
-  :root { color-scheme: dark; --bg:#0b0f14; --panel:#121821; --ink:#e7ecf3; --mute:#8b98a8; --hairline:#1e2633;
-    --harm:#ff4d6a; --silent:#c084fc; --degraded:#f5a623; --safe-fail:#38bdf8; --ok:#34d399; }
-  body { margin:0; font:14px/1.5 ui-sans-serif,system-ui,sans-serif; background:var(--bg); color:var(--ink); }
-  main { max-width:960px; margin:0 auto; padding:32px 20px 64px; }
-  h1 { font-size:22px; letter-spacing:-0.02em; margin:0 0 4px; }
-  .meta { color:var(--mute); margin-bottom:24px; }
-  .badge { display:inline-block; padding:4px 10px; border-radius:999px; font-weight:600; font-size:12px; }
-  .HARMFUL_ACTION { background:var(--harm); color:#14040a; }
-  .SILENT_FAILURE { background:var(--silent); color:#1a0a24; }
-  .DEGRADED { background:var(--degraded); color:#1a1000; }
-  .SAFE_FAILURE { background:var(--safe-fail); color:#041018; }
-  .SAFE_SUCCESS { background:var(--ok); color:#04140e; }
-  .panel { background:var(--panel); border:1px solid var(--hairline); border-radius:12px; padding:16px 18px; margin:16px 0; }
-  table { width:100%; border-collapse:collapse; }
-  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--hairline); vertical-align:top; }
-  th { color:var(--mute); font-weight:500; font-size:12px; text-transform:uppercase; letter-spacing:0.04em; }
-  code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
-  .err { color:var(--harm); }
-  .answer { white-space:pre-wrap; background:#0a0e14; border-radius:8px; padding:12px; }
-  ol.findings { padding-left:18px; }
-  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; }
-  .stat { background:#0a0e14; border-radius:8px; padding:12px; }
-  .stat .n { font-size:22px; font-weight:600; }
-  .stat .l { color:var(--mute); font-size:12px; }
+  body { margin:0; font:14px/1.5 system-ui,sans-serif; background:#fff; color:#1b1f24; }
+  main { max-width:1040px; margin:0 auto; padding:28px 20px 56px; }
+  h1 { font-size:20px; margin:0 0 4px; } h2 { font-size:15px; margin:0 0 8px; }
+  .meta { color:#57606a; margin-bottom:16px; }
+  .panel { border:1px solid #d0d7de; border-radius:8px; padding:14px 16px; margin:14px 0; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-weight:600; font-size:12px; color:#fff; }
+  .HARMFUL_ACTION { background:#cf222e; } .SILENT_FAILURE { background:#8250df; } .DEGRADED { background:#9a6700; }
+  .INCONCLUSIVE { background:#0969da; } .SAFE_FAILURE { background:#1b7c83; } .SAFE_SUCCESS { background:#1a7f37; }
+  table { width:100%; border-collapse:collapse; } th,td { text-align:left; padding:6px 8px; border-bottom:1px solid #d0d7de; vertical-align:top; }
+  th { color:#57606a; font-weight:600; font-size:12px; }
+  code { font-family:ui-monospace,Menlo,monospace; font-size:12px; word-break:break-all; }
+  .err { color:#cf222e; } .answer { white-space:pre-wrap; background:#f6f8fa; border-radius:6px; padding:10px; }
 </style>
 </head>
 <body>
 <main>
-  <h1>AgentCrucible report</h1>
-  <div class="meta">${escapeHtml(report.scenarioId)} · agent <code>${escapeHtml(report.agentId)}</code> · seed <code>${escapeHtml(report.seed)}</code></div>
-  <div><span class="badge ${escapeHtml(report.aggregateVerdict)}">${escapeHtml(report.aggregateVerdict)}</span></div>
-
-  <div class="panel stats">
-    <div class="stat"><div class="n">${report.stats.total}</div><div class="l">Trials</div></div>
-    <div class="stat"><div class="n">${(report.stats.flakyRate * 100).toFixed(0)}%</div><div class="l">Flaky rate</div></div>
-    <div class="stat"><div class="n">${(report.stats.criticalRateLower95 * 100).toFixed(0)}%</div><div class="l">Critical ≥95% lo</div></div>
-    <div class="stat"><div class="n">${report.durationMs}ms</div><div class="l">Duration</div></div>
-  </div>
-
+  <h1>${escapeMarkup(report.scenarioId)} <span class="badge ${escapeMarkup(report.aggregateVerdict)}">${escapeMarkup(report.aggregateVerdict)}</span></h1>
+  <div class="meta">world <code>${escapeMarkup(report.world)}</code> · agent <code>${escapeMarkup(report.agentId)}</code> · seed <code>${escapeMarkup(report.seed)}</code> · ${report.stats.total} trial(s) · AgentCrucible ${escapeMarkup(report.toolVersion)}</div>
   <div class="panel">
-    <h2>Findings</h2>
-    <ol class="findings">${findings || "<li>None</li>"}</ol>
+    <div><strong>Task:</strong> ${escapeMarkup(report.scenario.task)}</div>
+    <div><strong>Faults:</strong> ${escapeMarkup(report.scenario.faults.map(describeFault).join("; ") || "none")}</div>
+    <div><strong>Expect:</strong> ${escapeMarkup(describeExpect(report))}</div>
+    <div><strong>Verdict reason:</strong> ${escapeMarkup(worst?.reason ?? "")}</div>
   </div>
-
-  <div class="panel">
-    <h2>Tool timeline</h2>
-    <table>
-      <thead><tr><th>ID</th><th>Tool</th><th>Committed</th><th>Fault</th><th>Observed</th></tr></thead>
-      <tbody>${rows || "<tr><td colspan=5>No calls</td></tr>"}</tbody>
-    </table>
-  </div>
-
-  <div class="panel">
-    <h2>Final answer</h2>
-    <div class="answer">${escapeHtml(worst?.trace.finalAnswer ?? "")}</div>
-  </div>
+  ${warnings ? `<div class="panel"><h2>Warnings</h2><ul>${warnings}</ul></div>` : ""}
+  <div class="panel"><h2>Trials</h2><ul>${trialList}</ul>
+    <div>Flaky rate ${pct(report.stats.flakyRate)} · critical-rate 95% lower bound ${pct(report.stats.criticalRateLower95)} · faults fired in ${report.stats.trialsWithFault}/${report.stats.total} trials</div></div>
+  <div class="panel"><h2>Trial ${worst?.trace.trialIndex ?? "—"}: tool calls and state changes</h2>
+    <table><thead><tr><th>Call</th><th>Tool</th><th>Result</th><th>Fault</th><th>Agent saw</th><th>State change</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="6">No calls</td></tr>'}</tbody></table></div>
+  <div class="panel"><h2>Final answer</h2><div class="answer">${escapeMarkup(worst?.trace.finalAnswer ?? "")}</div>
+    <p><strong>Outcome check:</strong> ${escapeMarkup(worst ? `${worst.outcome.status} — ${worst.outcome.summary}` : "")}</p></div>
+  <div class="panel"><h2>Findings</h2><ol>${findings || "<li>None</li>"}</ol></div>
 </main>
 </body>
-</html>`;
-  writeFileSync(path, html);
-  return path;
+</html>
+`;
+  return writeReportFile(outDir, report.scenarioId, ".report.html", html);
 }
 
-export function writeJUnitReport(report: RunReport, outDir: string): string {
-  mkdirSync(outDir, { recursive: true });
-  const safe = encodeURIComponent(report.scenarioId);
-  const path = join(outDir, `${safe}.junit.xml`);
-  const failures = report.trials.filter((t) => isCritical(t.verdict));
+/** One testcase per trial; a trial fails when its verdict is at least `failOn`. */
+export function writeJUnitReport(report: RunReport, outDir: string, failOn: Verdict = "SILENT_FAILURE"): string {
+  const classname = `agentcrucible.${escapeMarkup(report.world)}`;
+  const failures = report.trials.filter((t) => atLeast(t.verdict, failOn)).length;
   const cases = report.trials
-    .map((t, i) => {
-      const name = `${report.scenarioId}::trial${i}`;
-      if (isCritical(t.verdict)) {
-        return `<testcase classname="agentcrucible.${escapeXml(report.world ?? "world")}" name="${escapeXml(name)}" time="0">
-  <failure message="${escapeXml(t.verdict)}">${escapeXml(t.reason)}</failure>
-</testcase>`;
-      }
-      return `<testcase classname="agentcrucible.${escapeXml(report.world ?? "world")}" name="${escapeXml(name)}" time="0"/>`;
+    .map((t) => {
+      const name = escapeMarkup(`${report.scenarioId}::${report.agentId}::trial${t.trace.trialIndex}`);
+      const failure = atLeast(t.verdict, failOn)
+        ? `\n    <failure message="${escapeMarkup(t.verdict)}" type="${escapeMarkup(t.verdict)}">${escapeMarkup(t.reason)}</failure>`
+        : "";
+      return `  <testcase classname="${classname}" name="${name}" time="0">${failure}
+    <system-out>${escapeMarkup(`${t.verdict}: ${t.reason}`)}</system-out>
+  </testcase>`;
     })
     .join("\n");
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="agentcrucible.${escapeXml(report.scenarioId)}" tests="${report.trials.length}" failures="${failures.length}" time="${(report.durationMs / 1000).toFixed(3)}">
+<testsuite name="agentcrucible.${escapeMarkup(report.scenarioId)}" tests="${report.trials.length}" failures="${failures}" time="${(report.durationMs / 1000).toFixed(3)}">
 ${cases}
 </testsuite>
 `;
-  writeFileSync(path, xml);
-  return path;
+  return writeReportFile(outDir, report.scenarioId, ".junit.xml", xml);
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+/** File names percent-encode the scenario id, so ids cannot leave `outDir` or collide with each other. */
+function writeReportFile(outDir: string, scenarioId: string, suffix: string, body: string): string {
+  const dir = resolve(outDir);
+  const path = join(dir, `${encodeURIComponent(scenarioId)}${suffix}`);
+  if (!path.startsWith(dir + sep)) throw new Error(`Refusing to write a report outside ${dir}: ${path}`);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path, body);
+  return join(outDir, `${encodeURIComponent(scenarioId)}${suffix}`);
 }
-function escapeXml(s: string): string {
-  return escapeHtml(s);
+
+export function describeFault(f: RunReport["scenario"]["faults"][number]): string {
+  const when = f.onCall !== undefined
+    ? `call ${f.onCall}`
+    : f.onCallRange
+      ? `one call in ${f.onCallRange[0]}-${f.onCallRange[1]} (seeded)`
+      : "every call";
+  const chance = f.probability !== undefined ? ` with probability ${f.probability}` : "";
+  return `${f.kind} on ${f.target} ${when}${chance}`;
+}
+
+function describeExpect(report: RunReport): string {
+  const e = report.scenario.expect;
+  if (!e) return "none (task completion is not checked)";
+  const parts = e.effects.map((x) => `${x.kind} ${Object.entries(x.fields).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(" ")}`.trim());
+  if (e.effects.length === 0) parts.push("no state changes");
+  if (e.answerAmountCents !== undefined) parts.push(`answer states $${(e.answerAmountCents / 100).toFixed(2)}`);
+  return parts.join("; ");
+}
+
+function callState(c: ToolCallRecord): string {
+  if (!c.mutating) return c.committed ? "read" : "not executed";
+  if (!c.committed) return "not committed";
+  return (c.committedResult as { deduplicated?: unknown } | undefined)?.deduplicated === true ? "deduplicated" : "committed";
+}
+
+function pct(x: number): string {
+  return `${(x * 100).toFixed(1)}%`;
+}
+
+function truncate(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/** Escapes text for HTML and XML content and attribute values. */
+function escapeMarkup(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }

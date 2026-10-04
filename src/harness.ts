@@ -1,24 +1,24 @@
-import { decideFault, isPreCommitFault, observationFromDecision } from "./faults.js";
-import type {
-  AgentMessage,
-  FaultSpec,
-  ToolCallRecord,
-  TrialTrace,
-} from "./types.js";
-import type { World } from "./worlds/types.js";
+import { decideFault, isPreCommitFault } from "./faults.js";
+import type { AgentMessage, FaultSpec, ToolCallRecord, ToolObservation, TrialTrace } from "./types.js";
+import type { World, WorldTool } from "./worlds/types.js";
+
+export interface ToolCallResult {
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+  code?: string;
+}
 
 export interface AgentContext {
   task: string;
-  tools: { name: string; description: string; mutating: boolean }[];
-  callTool: (name: string, args: Record<string, unknown>) => Promise<{
-    ok: boolean;
-    result?: unknown;
-    error?: string;
-    code?: string;
-  }>;
+  /** Tool definitions, including parameter descriptions. A fresh copy per trial. */
+  tools: WorldTool[];
+  callTool: (name: string, args: Record<string, unknown>) => Promise<ToolCallResult>;
+  /** Copy of the transcript so far. */
   history: AgentMessage[];
 }
 
+/** An agent under test: uses the tools, then returns its final answer to the user. */
 export type ScriptedAgent = (ctx: AgentContext) => Promise<string>;
 
 export interface HarnessOptions {
@@ -32,146 +32,76 @@ export interface HarnessOptions {
   agent: ScriptedAgent;
 }
 
-/**
- * Deterministic in-process harness. Runs a scripted (or live) agent against a
- * world with fault injection. No MCP/network required — CI-native by default.
- */
+/** Runs one trial: resets the world, lets the agent call tools with faults applied, and records everything. */
 export async function runHarness(opts: HarnessOptions): Promise<TrialTrace> {
   const { world, faults, seed, trialIndex } = opts;
   world.reset();
-  const worldBefore = structuredClone(world.snapshot());
+  const worldBefore = world.snapshot();
   const calls: ToolCallRecord[] = [];
-  const messages: AgentMessage[] = [
-    { role: "user", content: opts.task },
-  ];
+  const messages: AgentMessage[] = [{ role: "user", content: opts.task }];
   const callCounts = new Map<string, number>();
-  let seq = 0;
 
-  const callTool: AgentContext["callTool"] = async (name, args) => {
-    const tool = world.tools.find((t) => t.name === name);
+  const callTool: AgentContext["callTool"] = async (name, rawArgs) => {
     const callIndex = (callCounts.get(name) ?? 0) + 1;
     callCounts.set(name, callIndex);
-    seq += 1;
-    const id = `call_${seq}`;
-    args = structuredClone(args);
-    if (!tool) {
-      const observed = { ok: false as const, error: `unknown tool: ${name}`, code: 'ENOTOOL' };
-      calls.push({ id, tool: name, args: structuredClone(args), callIndex, seq, observed, committed: false, worldSnapshotAfter: structuredClone(world.snapshot()) });
-      messages.push({ role: 'assistant', content: `tool_call ${name}(${JSON.stringify(args)})` });
-      messages.push({ role: 'system', content: `tool_error ${observed.error}` });
-      return { ...observed };
-    }
+    const tool = world.tools.find((t) => t.name === name);
+    const base = { id: `call_${calls.length + 1}`, tool: name, mutating: tool?.mutating ?? false, callIndex, seq: calls.length + 1 };
 
-
-    // Peek which fault would apply to decide pre-commit vs post-commit.
-    const peek = decideFault(faults, name, callIndex, seed, trialIndex, null);
-    let committedResult: unknown = undefined;
-    let committed = false;
-
-    if (peek.apply && peek.kind && isPreCommitFault(peek.kind)) {
-      const { observation, committed: c } = observationFromDecision(peek, null);
-      const record: ToolCallRecord = {
-        id,
-        tool: name,
-        args: structuredClone(args),
-        callIndex,
-        seq,
-        observed: structuredClone(observation),
-        committed: c,
-        faultApplied: peek.kind,
-        worldSnapshotAfter: structuredClone(world.snapshot()),
-      };
-      calls.push(record);
-      messages.push({
-        role: "assistant",
-        content: `tool_call ${name}(${JSON.stringify(args)})`,
-      });
+    const record = (fields: Omit<ToolCallRecord, keyof typeof base | "worldSnapshotAfter">): ToolCallResult => {
+      const call: ToolCallRecord = { ...base, ...fields, worldSnapshotAfter: world.snapshot() };
+      calls.push(structuredClone(call));
+      messages.push({ role: "assistant", content: `tool_call ${name}(${JSON.stringify(call.args)})` });
       messages.push({
         role: "system",
-        content: observation.ok
-          ? `tool_result ${JSON.stringify(observation.result)}`
-          : `tool_error ${observation.error}`,
+        content: call.observed.ok
+          ? `tool_result ${JSON.stringify(call.observed.result)}`
+          : `tool_error ${call.observed.error}`,
       });
-      return observation.ok
-        ? { ok: true, result: structuredClone(observation.result) }
-        : { ok: false, error: observation.error, code: observation.code };
+      return structuredClone(call.observed);
+    };
+
+    let args: Record<string, unknown>;
+    try {
+      if (typeof rawArgs !== "object" || rawArgs === null || Array.isArray(rawArgs)) throw new Error();
+      args = structuredClone(rawArgs);
+    } catch {
+      return record({ args: {}, committed: false, observed: error("tool arguments must be a JSON object", "EARGS") });
+    }
+    if (!tool) {
+      return record({ args, committed: false, observed: error(`unknown tool: ${name}`, "ENOTOOL") });
     }
 
-    // Invoke world (commit), then maybe mask/mutate.
+    const fault = decideFault(faults, name, callIndex, seed, trialIndex);
+    const faultFields = fault.apply ? { faultApplied: fault.kind, faultIndex: fault.index } : {};
+    if (fault.kind && isPreCommitFault(fault.kind)) {
+      return record({ args, committed: false, observed: error(fault.maskAsError!.error, fault.maskAsError!.code), ...faultFields });
+    }
+
+    let committedResult: unknown;
     try {
       committedResult = structuredClone(world.invoke(name, structuredClone(args)));
-      committed = true;
     } catch (err) {
-      const observation = {
-        ok: false as const,
-        error: err instanceof Error ? err.message : String(err),
-        code: "EWORLD",
-      };
-      calls.push({
-        id,
-        tool: name,
-        args: structuredClone(args),
-        callIndex,
-        seq,
-        observed: structuredClone(observation),
-        committed: false,
-        worldSnapshotAfter: structuredClone(world.snapshot()),
-      });
-      messages.push({ role: 'assistant', content: `tool_call ${name}(${JSON.stringify(args)})` });
-      messages.push({ role: 'system', content: `tool_error ${observation.error}` });
-      return { ...observation };
+      return record({ args, committed: false, observed: error(err instanceof Error ? err.message : String(err), "EWORLD") });
     }
 
-    const decision = decideFault(faults, name, callIndex, seed, trialIndex, committedResult);
-    const { observation, committed: stillCommitted } = observationFromDecision(
-      decision,
-      committedResult
-    );
-    // timeout_after_commit keeps committed=true; mutate keeps committed=true
-    const record: ToolCallRecord = {
-      id,
-      tool: name,
-      args: structuredClone(args),
-      callIndex,
-      seq,
-      observed: structuredClone(observation),
-      committed: committed && stillCommitted,
-      committedResult,
-      faultApplied: decision.kind,
-      worldSnapshotAfter: structuredClone(world.snapshot()),
-    };
-    // For timeout_after_commit, observationFromDecision sets committed true
-    if (decision.kind === "timeout_after_commit") {
-      record.committed = true;
-    }
-    calls.push(record);
-    messages.push({
-      role: "assistant",
-      content: `tool_call ${name}(${JSON.stringify(args)})`,
-    });
-    messages.push({
-      role: "system",
-      content: observation.ok
-        ? `tool_result ${JSON.stringify(observation.result)}`
-        : `tool_error ${observation.error}`,
-    });
-    return observation.ok
-      ? { ok: true, result: structuredClone(observation.result) }
-      : { ok: false, error: observation.error, code: observation.code };
+    const observed: ToolObservation = fault.maskAsError
+      ? error(fault.maskAsError.error, fault.maskAsError.code)
+      : { ok: true, result: fault.mutateResult ? fault.mutateResult(structuredClone(committedResult)) : committedResult };
+    return record({ args, committed: true, committedResult, observed, ...faultFields });
   };
 
-  const ctx: AgentContext = {
+  const tools = structuredClone(world.tools);
+  const finalAnswer = await opts.agent({
     task: opts.task,
-    tools: world.tools.map((t) => ({
-      name: t.name,
-      description: t.description,
-      mutating: t.mutating,
-    })),
+    tools,
     callTool,
-    get history() { return structuredClone(messages); },
-  };
-
-  const finalAnswer = await opts.agent(ctx);
+    get history() {
+      return structuredClone(messages);
+    },
+  });
+  if (typeof finalAnswer !== "string") {
+    throw new Error(`agent "${opts.agentId}" must return its final answer as a string`);
+  }
   messages.push({ role: "assistant", content: finalAnswer });
 
   return {
@@ -183,7 +113,11 @@ export async function runHarness(opts: HarnessOptions): Promise<TrialTrace> {
     calls,
     finalAnswer,
     worldBefore,
-    worldAfter: structuredClone(world.snapshot()),
+    worldAfter: world.snapshot(),
     agentId: opts.agentId,
   };
+}
+
+function error(message: string, code: string): ToolObservation {
+  return { ok: false, error: message, code };
 }

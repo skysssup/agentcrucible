@@ -1,13 +1,28 @@
-import type { FaultKind, FaultSpec, ToolObservation } from "./types.js";
 import { pickInRange, unitRandom } from "./hash.js";
+import type { FaultKind, FaultSpec } from "./types.js";
 
 export interface FaultDecision {
   apply: boolean;
   kind?: FaultKind;
-  /** For silent_wrong_data etc. */
+  /** Index of the matching spec in the scenario's fault list. */
+  index?: number;
+  /** Replaces the committed result in what the agent observes. */
   mutateResult?: (committed: unknown) => unknown;
-  /** Mask the committed result as an error/timeout to the agent. */
-  maskAsError?: { error: string; code?: string };
+  /** Error the agent observes instead of the result. */
+  maskAsError?: { error: string; code: string };
+}
+
+/** Faults that fire before the world runs the call, so nothing commits. */
+const PRE_COMMIT: ReadonlySet<FaultKind> = new Set([
+  "timeout",
+  "rate_limit_429",
+  "auth_expiry",
+  "retry_storm",
+  "omission",
+]);
+
+export function isPreCommitFault(kind: FaultKind): boolean {
+  return PRE_COMMIT.has(kind);
 }
 
 export function resolveOnCall(spec: FaultSpec, seed: string, trialIndex: number): number | undefined {
@@ -29,180 +44,69 @@ export function shouldApplyFault(
   if (spec.target !== "*" && spec.target !== tool) return false;
   const onCall = resolveOnCall(spec, seed, trialIndex);
   if (onCall !== undefined && onCall !== callIndex) return false;
-  if (spec.probability !== undefined) {
-    const p = unitRandom(`${seed}:trial${trialIndex}:${tool}:${callIndex}:${spec.kind}`);
-    if (spec.probability <= 0 || (spec.probability < 1 && p >= spec.probability)) return false;
-  }
-  return true;
+  if (spec.probability === undefined) return true;
+  return unitRandom(`${seed}:trial${trialIndex}:${tool}:${callIndex}:${spec.kind}`) < spec.probability;
 }
 
+/** The first spec that matches the call decides the fault. */
 export function decideFault(
   specs: FaultSpec[],
   tool: string,
   callIndex: number,
   seed: string,
-  trialIndex: number,
-  committed: unknown
+  trialIndex: number
 ): FaultDecision {
-  for (const spec of specs) {
-    if (!shouldApplyFault(spec, tool, callIndex, seed, trialIndex)) continue;
-    return buildDecision(spec.kind, committed, spec.params ?? {});
-  }
-  return { apply: false };
+  const index = specs.findIndex((spec) => shouldApplyFault(spec, tool, callIndex, seed, trialIndex));
+  if (index === -1) return { apply: false };
+  const spec = specs[index];
+  return { apply: true, kind: spec.kind, index, ...faultEffect(spec.kind, spec.params ?? {}) };
 }
 
-function buildDecision(
-  kind: FaultKind,
-  committed: unknown,
-  params: Record<string, unknown>
-): FaultDecision {
+function faultEffect(kind: FaultKind, params: Record<string, unknown>): Pick<FaultDecision, "mutateResult" | "maskAsError"> {
   switch (kind) {
     case "timeout_after_commit":
-      return {
-        apply: true,
-        kind,
-        maskAsError: {
-          error: "ETIMEDOUT: connection timed out after commit",
-          code: "ETIMEDOUT",
-        },
-      };
+      return { maskAsError: { error: "ETIMEDOUT: connection timed out after commit", code: "ETIMEDOUT" } };
     case "timeout":
-      return {
-        apply: true,
-        kind,
-        maskAsError: { error: "ETIMEDOUT: request timed out", code: "ETIMEDOUT" },
-      };
+      return { maskAsError: { error: "ETIMEDOUT: request timed out", code: "ETIMEDOUT" } };
+    case "retry_storm":
+      return { maskAsError: { error: "ETIMEDOUT: transient failure", code: "ETIMEDOUT" } };
     case "omission":
-      return {
-        apply: true,
-        kind,
-        maskAsError: { error: "tool returned empty response", code: "EOMISSION" },
-      };
+      return { maskAsError: { error: "tool returned empty response", code: "EOMISSION" } };
     case "rate_limit_429":
-      return {
-        apply: true,
-        kind,
-        maskAsError: { error: "429 Too Many Requests", code: "ERATE" },
-      };
+      return { maskAsError: { error: "429 Too Many Requests", code: "ERATE" } };
     case "auth_expiry":
-      return {
-        apply: true,
-        kind,
-        maskAsError: { error: "401 Unauthorized: token expired", code: "EAUTH" },
-      };
+      return { maskAsError: { error: "401 Unauthorized: token expired", code: "EAUTH" } };
     case "malformed_response":
-      return {
-        apply: true,
-        kind,
-        mutateResult: () => "<<<not-json>>>{{{",
-      };
+      return { mutateResult: () => "<<<not-json>>>{{{" };
     case "silent_wrong_data": {
       const field = String(params.field ?? "amount_cents");
       const delta = Number(params.delta ?? -100);
       return {
-        apply: true,
-        kind,
-        mutateResult: (c) => {
-          if (c && typeof c === "object") {
-            const copy = { ...(c as Record<string, unknown>) };
-            const cur = Number(copy[field]);
-            if (Number.isFinite(cur)) copy[field] = cur + delta;
-            return copy;
-          }
-          return c;
+        mutateResult: (result) => {
+          if (!isRecord(result) || !Number.isFinite(Number(result[field]))) return result;
+          return { ...result, [field]: Number(result[field]) + delta };
         },
       };
     }
     case "stale_cache": {
       const field = String(params.field ?? "balance_cents");
       const stale = params.stale_value ?? 999999;
-      return {
-        apply: true,
-        kind,
-        mutateResult: (c) => {
-          if (c && typeof c === "object") {
-            return { ...(c as Record<string, unknown>), [field]: stale, _stale: true };
-          }
-          return c;
-        },
-      };
+      return { mutateResult: (result) => (isRecord(result) ? { ...result, [field]: stale } : result) };
     }
     case "schema_drift":
       return {
-        apply: true,
-        kind,
-        mutateResult: (c) => {
-          if (c && typeof c === "object") {
-            const copy = { ...(c as Record<string, unknown>) };
-            // Rename a common field to simulate API version skew.
-            if ("amount_cents" in copy) {
-              copy.amount = copy.amount_cents;
-              delete copy.amount_cents;
-            }
-            if ("balance_cents" in copy) {
-              copy.balance = copy.balance_cents;
-              delete copy.balance_cents;
-            }
-            copy.api_version = "v0-deprecated";
-            return copy;
+        mutateResult: (result) => {
+          if (!isRecord(result)) return result;
+          const drifted: Record<string, unknown> = {};
+          for (const [key, value] of Object.entries(result)) {
+            drifted[key.endsWith("_cents") ? key.slice(0, -"_cents".length) : key] = value;
           }
-          return c;
+          return { ...drifted, api_version: "v0-deprecated" };
         },
       };
-    case "retry_storm":
-      // onCallRange selects one seeded call; omit it to time out every matching call.
-      return {
-        apply: true,
-        kind,
-        maskAsError: { error: "ETIMEDOUT: transient failure", code: "ETIMEDOUT" },
-      };
   }
 }
 
-export function observationFromDecision(
-  decision: FaultDecision,
-  committed: unknown
-): { observation: ToolObservation; committed: boolean } {
-  if (!decision.apply) {
-    return { observation: { ok: true, result: committed }, committed: true };
-  }
-  // timeout_after_commit: world committed, agent sees error
-  if (decision.kind === "timeout_after_commit") {
-    return {
-      observation: {
-        ok: false,
-        error: decision.maskAsError!.error,
-        code: decision.maskAsError!.code,
-      },
-      committed: true,
-    };
-  }
-  if (decision.maskAsError) {
-    return {
-      observation: {
-        ok: false,
-        error: decision.maskAsError.error,
-        code: decision.maskAsError.code,
-      },
-      committed: false,
-    };
-  }
-  if (decision.mutateResult) {
-    return {
-      observation: { ok: true, result: decision.mutateResult(committed) },
-      committed: true,
-    };
-  }
-  return { observation: { ok: true, result: committed }, committed: true };
-}
-
-/** Faults that must run BEFORE the world invoke (no commit). */
-export function isPreCommitFault(kind: FaultKind): boolean {
-  return (
-    kind === "timeout" ||
-    kind === "rate_limit_429" ||
-    kind === "auth_expiry" ||
-    kind === "retry_storm" ||
-    kind === "omission"
-  );
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

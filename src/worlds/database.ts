@@ -1,18 +1,15 @@
-import type { World, WorldTool } from "./types.js";
+import { readIdempotencyKey, type World, type WorldTool } from "./types.js";
 
 interface Row {
   id: string;
   table: string;
   data: Record<string, unknown>;
+  idempotencyKey?: string;
 }
 
 interface DbState {
   rows: Row[];
   seq: number;
-}
-
-function clone(s: DbState): DbState {
-  return structuredClone(s);
 }
 
 export function createDatabaseWorld(): World {
@@ -39,7 +36,7 @@ export function createDatabaseWorld(): World {
     },
     {
       name: "get_balance",
-      description: "Read a numeric balance field for an account row.",
+      description: "Read the balance_cents field of an account row.",
       mutating: false,
       parameters: {
         account_id: { type: "string", description: "Account id", required: true },
@@ -49,8 +46,11 @@ export function createDatabaseWorld(): World {
 
   return {
     name: "database",
-    description: "In-memory row store with balances.",
+    description: "Row store seeded with account acct_1 (balance_cents 10000).",
     tools,
+    recordFields: {
+      row: { table: "string", data: "object", idempotency_key: "string" },
+    },
     reset() {
       state = {
         seq: 0,
@@ -64,33 +64,34 @@ export function createDatabaseWorld(): World {
       };
     },
     snapshot() {
-      return clone(state) as unknown as Record<string, unknown>;
-    },
-    restore(snap) {
-      state = clone(snap as unknown as DbState);
+      return structuredClone(state) as unknown as Record<string, unknown>;
     },
     invoke(tool, args) {
       if (tool === "insert_row") {
-        const table = String(args.table ?? "");
-        if (!table.trim() || !args.data || typeof args.data !== 'object' || Array.isArray(args.data)) throw new Error('insert_row requires table and object data');
-        const data = structuredClone(args.data) as Record<string, unknown>;
-        const idem = args.idempotency_key !== undefined ? String(args.idempotency_key) : undefined;
-        if (idem) {
-          const existing = state.rows.find((r) => r.data.__idem === idem);
-          if (existing) return { id: existing.id, status: "ok", deduplicated: true };
+        const table = String(args.table ?? "").trim();
+        if (!table || !args.data || typeof args.data !== "object" || Array.isArray(args.data)) {
+          throw new Error("insert_row requires table and object data");
         }
+        const idempotencyKey = readIdempotencyKey(tool, args);
+        const existing = idempotencyKey
+          ? state.rows.find((r) => r.idempotencyKey === idempotencyKey)
+          : undefined;
+        if (existing) return { id: existing.id, status: "ok", deduplicated: true };
         state.seq += 1;
         const id = `row_${state.seq}`;
         state.rows.push({
           id,
           table,
-          data: { ...data, ...(idem ? { __idem: idem } : {}) },
+          data: structuredClone(args.data) as Record<string, unknown>,
+          idempotencyKey,
         });
         return { id, status: "ok", deduplicated: false };
       }
       if (tool === "query_rows") {
         const table = String(args.table ?? "");
-        return structuredClone(state.rows.filter((r) => r.table === table).map((r) => ({ id: r.id, ...r.data })));
+        return state.rows
+          .filter((r) => r.table === table)
+          .map((r) => ({ id: r.id, ...structuredClone(r.data) }));
       }
       if (tool === "get_balance") {
         const accountId = String(args.account_id ?? "");
@@ -102,17 +103,17 @@ export function createDatabaseWorld(): World {
       }
       throw new Error(`unknown tool: ${tool}`);
     },
-    diff(before, after) {
-      const b = before as unknown as DbState;
-      const a = after as unknown as DbState;
-      const beforeIds = new Set((b.rows ?? []).map((r) => r.id));
-      const lines: string[] = [];
-      for (const r of a.rows ?? []) {
-        if (!beforeIds.has(r.id)) {
-          lines.push(`+ row ${r.id} table=${r.table} data=${JSON.stringify(r.data)}`);
-        }
-      }
-      return lines;
+    records(snapshot) {
+      const rows = (snapshot as unknown as DbState).rows ?? [];
+      return rows.map((r) => ({
+        kind: "row",
+        id: r.id,
+        fields: {
+          table: r.table,
+          data: r.data,
+          ...(r.idempotencyKey ? { idempotency_key: r.idempotencyKey } : {}),
+        },
+      }));
     },
   };
 }

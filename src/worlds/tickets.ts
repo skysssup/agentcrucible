@@ -1,10 +1,9 @@
-import type { World, WorldTool } from "./types.js";
+import { readIdempotencyKey, type World, type WorldTool } from "./types.js";
 
 export interface Ticket {
   id: string;
   title: string;
   status: "open" | "closed" | "escalated";
-  assignee?: string;
   comments: string[];
   idempotencyKey?: string;
 }
@@ -12,13 +11,6 @@ export interface Ticket {
 interface TicketsState {
   tickets: Ticket[];
   seq: number;
-}
-
-function cloneState(s: TicketsState): TicketsState {
-  return {
-    tickets: s.tickets.map((t) => ({ ...t, comments: [...t.comments] })),
-    seq: s.seq,
-  };
 }
 
 export function createTicketsWorld(): World {
@@ -63,98 +55,69 @@ export function createTicketsWorld(): World {
 
   return {
     name: "tickets",
-    description: "Support ticket system with create/escalate and idempotency.",
+    description: "Support tickets with create and escalate. Both deduplicate by idempotency key.",
     tools,
+    recordFields: {
+      ticket: { title: "string", status: "string", comments: "array", idempotency_key: "string" },
+    },
     reset() {
       state = { tickets: [], seq: 0 };
     },
     snapshot() {
-      return cloneState(state) as unknown as Record<string, unknown>;
-    },
-    restore(snap) {
-      const s = snap as unknown as TicketsState;
-      state = cloneState({ tickets: s.tickets ?? [], seq: s.seq ?? 0 });
+      return structuredClone(state) as unknown as Record<string, unknown>;
     },
     invoke(tool, args) {
       if (tool === "create_ticket") {
-        const title = String(args.title ?? "");
+        const title = String(args.title ?? "").trim();
         const body = args.body !== undefined ? String(args.body) : "";
-        const idempotencyKey =
-          args.idempotency_key !== undefined ? String(args.idempotency_key) : undefined;
+        const idempotencyKey = readIdempotencyKey(tool, args);
         if (!title) throw new Error("create_ticket requires title");
-        if (idempotencyKey) {
-          const existing = state.tickets.find((t) => t.idempotencyKey === idempotencyKey);
-          if (existing) {
-            return { ticket_id: existing.id, status: existing.status, deduplicated: true };
-          }
-        }
+        const existing = idempotencyKey
+          ? state.tickets.find((t) => t.idempotencyKey === idempotencyKey)
+          : undefined;
+        if (existing) return { ticket_id: existing.id, status: existing.status, deduplicated: true };
         state.seq += 1;
         const id = `tkt_${state.seq}`;
-        const ticket: Ticket = {
-          id,
-          title,
-          status: "open",
-          comments: body ? [body] : [],
-          idempotencyKey,
-        };
-        state.tickets.push(ticket);
+        state.tickets.push({ id, title, status: "open", comments: body ? [body] : [], idempotencyKey });
         return { ticket_id: id, status: "open", deduplicated: false };
       }
       if (tool === "escalate_ticket") {
         const ticketId = String(args.ticket_id ?? "");
         const reason = args.reason !== undefined ? String(args.reason) : "escalated";
-        const idempotencyKey =
-          args.idempotency_key !== undefined ? String(args.idempotency_key) : undefined;
+        const idempotencyKey = readIdempotencyKey(tool, args);
         const ticket = state.tickets.find((t) => t.id === ticketId);
         if (!ticket) throw new Error(`ticket not found: ${ticketId}`);
-        if (idempotencyKey) {
-          const already = ticket.comments.some((c) => c.includes(`[idem:${idempotencyKey}]`));
-          if (already) {
-            return { ticket_id: ticket.id, status: ticket.status, deduplicated: true };
-          }
+        const marker = idempotencyKey ? ` [idem:${idempotencyKey}]` : "";
+        if (marker && ticket.comments.some((c) => c.endsWith(marker))) {
+          return { ticket_id: ticket.id, status: ticket.status, deduplicated: true };
         }
         ticket.status = "escalated";
-        ticket.comments.push(
-          idempotencyKey ? `${reason} [idem:${idempotencyKey}]` : reason
-        );
+        ticket.comments.push(reason + marker);
         return { ticket_id: ticket.id, status: ticket.status, deduplicated: false };
       }
       if (tool === "get_ticket") {
         const ticketId = String(args.ticket_id ?? "");
         const ticket = state.tickets.find((t) => t.id === ticketId);
         if (!ticket) throw new Error(`ticket not found: ${ticketId}`);
-        return { ...ticket };
+        return { id: ticket.id, title: ticket.title, status: ticket.status, comments: [...ticket.comments] };
       }
       if (tool === "list_tickets") {
-        return state.tickets.map((t) => ({
-          ticket_id: t.id,
-          title: t.title,
-          status: t.status,
-        }));
+        return state.tickets.map((t) => ({ ticket_id: t.id, title: t.title, status: t.status }));
       }
       throw new Error(`unknown tool: ${tool}`);
     },
-    diff(before, after) {
-      const b = before as unknown as TicketsState;
-      const a = after as unknown as TicketsState;
-      const lines: string[] = [];
-      const beforeIds = new Set((b.tickets ?? []).map((t) => t.id));
-      for (const t of a.tickets ?? []) {
-        if (!beforeIds.has(t.id)) {
-          lines.push(`+ ticket ${t.id} title=${t.title} status=${t.status}`);
-        } else {
-          const prev = (b.tickets ?? []).find((x) => x.id === t.id);
-          if (prev && prev.status !== t.status) {
-            lines.push(`~ ticket ${t.id} status ${prev.status}→${t.status}`);
-          }
-          if (prev && t.comments.length > prev.comments.length) {
-            lines.push(
-              `~ ticket ${t.id} +${t.comments.length - prev.comments.length} comment(s)`
-            );
-          }
-        }
-      }
-      return lines;
+    records(snapshot) {
+      const tickets = (snapshot as unknown as TicketsState).tickets ?? [];
+      return tickets.map((t) => ({
+        kind: "ticket",
+        id: t.id,
+        fields: {
+          title: t.title,
+          status: t.status,
+          comments: t.comments,
+          ...(t.idempotencyKey ? { idempotency_key: t.idempotencyKey } : {}),
+        },
+      }));
     },
   };
 }
