@@ -172,7 +172,7 @@ export function worldProblems(name: string, factory: unknown): string[] {
   try {
     world.reset();
     const snapshot = world.snapshot();
-    if (JSON.stringify(JSON.parse(JSON.stringify(snapshot))) !== JSON.stringify(snapshot)) problems.push("snapshot() must return JSON-serializable data");
+    if (!isPlainJson(snapshot)) problems.push("snapshot() must return plain JSON data (objects, arrays, strings, finite numbers, booleans, null)");
     const records = world.records(snapshot);
     if (!Array.isArray(records)) problems.push("records() must return a list");
     else {
@@ -199,6 +199,15 @@ export function faultProblems(definition: unknown): string[] {
     if ((d.params as { type?: unknown }).type !== "object") problems.push('params.type must be "object"');
   }
   return problems;
+}
+
+function isPlainJson(value: unknown): boolean {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every(isPlainJson);
+  if (typeof value !== "object") return false;
+  const proto = Object.getPrototypeOf(value);
+  return (proto === Object.prototype || proto === null) && Object.values(value).every(isPlainJson);
 }
 
 function toAgentDefinition(value: unknown): [AgentDefinition | undefined, string[]] {

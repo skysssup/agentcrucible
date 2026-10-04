@@ -244,6 +244,7 @@ export function writeHtmlReport(report: RunReport, outDir: string): string {
   .chip.pass { background:#dafbe1; } .chip.missing, .chip.ambiguous { background:#ddf4ff; } .chip.contradicted, .chip.invalid { background:#ffebe9; }
   .state { color:#1a7f37; } .finding { margin:8px 0; } .finding ul { margin:4px 0; padding-left:18px; }
   .answer { white-space:pre-wrap; background:#f6f8fa; border-radius:6px; padding:8px; }
+  .expect { margin:2px 0 6px; padding-left:20px; }
   @media (max-width: 900px) { .trial { grid-template-columns:1fr; } }
 </style>
 </head>
@@ -255,7 +256,7 @@ export function writeHtmlReport(report: RunReport, outDir: string): string {
     <div><strong>Task:</strong> ${esc(s.task)}</div>
     <div><strong>Faults:</strong> ${esc(report.faults.map(describeFault).join("; ") || "none")}</div>
     ${s.budget.maxCalls !== undefined || s.budget.maxCallsPerTool ? `<div><strong>Budget:</strong> ${esc(describeBudget(report))}</div>` : ""}
-    <div><strong>Expect:</strong> ${esc(describeExpect(report))}</div>
+    <div><strong>Expect:</strong><ul class="expect">${expectParts(report).map((p) => `<li>${esc(p)}</li>`).join("")}</ul></div>
     <div><strong>Verdict reason:</strong> ${esc(worst?.reason ?? "")}</div>
   </div>
   ${warnings ? `<div class="panel"><h2>Warnings</h2><ul>${warnings}</ul></div>` : ""}
@@ -384,8 +385,13 @@ function describeBudget(report: RunReport): string {
 }
 
 export function describeExpect(report: RunReport): string {
+  return expectParts(report).join("; ");
+}
+
+/** The scenario's expectations, one item per outcome, allowance, invariant, and answer check. */
+function expectParts(report: RunReport): string[] {
   const e = report.scenario.expect;
-  if (!e) return "none (task completion is not checked)";
+  if (!e) return ["none (task completion is not checked)"];
   const effects = (patterns: typeof e.outcomes[number]["effects"]) => (patterns.length ? patterns.map(describePattern).join("; ") : "no state changes");
   const parts =
     e.outcomes.length === 1
@@ -394,7 +400,7 @@ export function describeExpect(report: RunReport): string {
   if (e.allow.length) parts.push(`allowed: ${e.allow.map(describePattern).join("; ")}`);
   for (const inv of e.invariants) parts.push(`invariant ${inv.name}: ${describeInvariant(inv)}`);
   for (const a of e.answer) parts.push(describeAssertion(a));
-  return parts.join("; ");
+  return parts;
 }
 
 function describeAssertion(a: AnswerAssertion): string {
@@ -406,7 +412,9 @@ function describeAssertion(a: AnswerAssertion): string {
     case "text":
       return a.contains !== undefined ? `answer contains ${JSON.stringify(a.contains)}` : a.notContains !== undefined ? `answer does not contain ${JSON.stringify(a.notContains)}` : `answer matches /${a.matches}/`;
     case "boolean":
-      return `answer says whether ${a.keywords.join("/")}: ${typeof a.equals === "boolean" ? a.equals : describeRef(a.equals)}`;
+      return typeof a.equals === "boolean"
+        ? `answer says ${a.equals ? "yes" : "no"} to ${a.keywords.join("/")}`
+        : `answer's yes or no on ${a.keywords.join("/")} matches ${describeRef(a.equals)}`;
     case "output":
       return `output ${[...(a.schema ? ["matches its schema"] : []), ...Object.entries(a.fields).map(([k, v]) => `${k} = ${isValueRef(v) ? describeRef(v) : JSON.stringify(v)}`)].join(", ")}`;
   }

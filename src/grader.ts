@@ -54,7 +54,8 @@ function checkExpectations(expect: ScenarioExpectations, trace: TrialTrace, worl
   const records = world.records(trace.worldAfter);
   const match = chooseOutcome(expect, effects, records);
   const path = expect.outcomes.length > 1 ? `the "${match.outcome.name}" outcome` : "the expected outcome";
-  const violations: Finding[] = [];
+  // Invariants come first: they name the step at which a multi-step run went wrong.
+  const violations: Finding[] = invariantFindings(checkInvariants(expect.invariants, world, trace));
   for (const { pattern, effects: hits } of match.duplicates) {
     violations.push({
       verdict: "HARMFUL_ACTION",
@@ -71,7 +72,6 @@ function checkExpectations(expect: ScenarioExpectations, trace: TrialTrace, worl
       evidence: [effectEvidence(effect)],
     });
   }
-  violations.push(...invariantFindings(checkInvariants(expect.invariants, world, trace)));
   const answer = checkAnswer(expect.answer, trace, records, effects);
   violations.push(...answer.findings);
 
