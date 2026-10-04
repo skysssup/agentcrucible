@@ -438,13 +438,12 @@ export function loadAllScenarios(root: string | string[] = bundledScenariosDir()
   const byId = new Map<string, Scenario>();
   for (const dir of Array.isArray(root) ? root : [root]) {
     if (!existsSync(dir) || !statSync(dir).isDirectory()) throw new Error(`Scenario directory not found: ${dir}`);
-    walk(dir, (file) => {
-      if (!/\.(ya?ml|json)$/.test(file)) return;
+    for (const file of scenarioFiles(dir)) {
       const scenario = loadScenarioFile(file, registry);
       const previous = byId.get(scenario.id);
       if (previous) throw new Error(`Duplicate scenario id "${scenario.id}" in ${previous.source} and ${file}`);
       byId.set(scenario.id, scenario);
-    });
+    }
   }
   return [...byId.values()].sort((a, b) => (a.id < b.id ? -1 : 1));
 }
@@ -463,6 +462,17 @@ export function findScenarios(opts: { id?: string; tag?: string; root?: string |
       : all.filter((s) => s.id.startsWith(`${selector}/`) || s.id.endsWith(`/${selector}`))
     : all;
   return opts.tag ? byId.filter((s) => s.tags.includes(opts.tag!)) : byId;
+}
+
+/** The .yaml, .yml, and .json files under a directory, in sorted order, or the path itself when it is a file. */
+export function scenarioFiles(path: string): string[] {
+  if (!existsSync(path)) throw new Error(`${path}: not found`);
+  if (!statSync(path).isDirectory()) return [path];
+  const files: string[] = [];
+  walk(path, (file) => {
+    if (/\.(ya?ml|json)$/.test(file)) files.push(file);
+  });
+  return files;
 }
 
 function walk(dir: string, visit: (file: string) => void, visited = new Set<string>()): void {

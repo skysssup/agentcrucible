@@ -354,3 +354,66 @@ describe("check, demo, and informational commands", () => {
     expect(runCli(args, { env: { NO_COLOR: undefined, FORCE_COLOR: "1" } }).stdout).toContain("\x1b[");
   });
 });
+
+describe("init and validate", () => {
+  it("init writes a starter project that validates, runs, and checks", () => {
+    const cwd = tempDir();
+    const init = runCli(["init"], { cwd });
+    expect(init.status, init.stderr).toBe(0);
+    expect(init.stdout).toContain("created  agentcrucible.config.json");
+    expect(init.stdout).toContain(`created  ${join("scenarios", "refund-lost-response.yaml")}`);
+    expect(init.stdout).toContain(`created  ${join("agents", "my-agent.mjs")}`);
+
+    const validate = runCli(["validate"], { cwd });
+    expect(validate.status, validate.stdout + validate.stderr).toBe(0);
+    expect(validate.stdout).toMatch(/^\d+ scenario file\(s\) valid$/m);
+    const run = runCli(["run", "--json"], { cwd });
+    expect(run.status, run.stderr).toBe(0);
+    expect(JSON.parse(run.stdout)).toMatchObject({ scenarioId: "project/refund-lost-response", agentId: "my-agent", aggregateVerdict: "SAFE_SUCCESS" });
+    const check = runCli(["check", "--scenario", "project/refund-lost-response"], { cwd });
+    expect(check.stdout).toContain("3/3 checks pass");
+
+    const again = runCli(["init"], { cwd });
+    expect(again.stdout).toContain("skipped  agentcrucible.config.json");
+    expect(again.stdout).toContain("Nothing to do");
+  });
+
+  it("init leaves an existing config file alone and says what to add", () => {
+    const cwd = tempDir();
+    writeFileSync(join(cwd, ".agentcrucible.yaml"), "trials: 2\n");
+    const init = runCli(["init"], { cwd });
+    expect(init.status).toBe(0);
+    expect(init.stdout).toContain(`skipped  agentcrucible.config.json (${join(cwd, ".agentcrucible.yaml")} already configures this project)`);
+    expect(init.stdout).toContain('add "scenarios" to its scenarioDirs');
+    expect(existsSync(join(cwd, "agentcrucible.config.json"))).toBe(false);
+    expect(runCli(["config"], { cwd }).status).toBe(0);
+  });
+
+  it("validate reports every broken file and duplicate id without running anything", () => {
+    const cwd = tempDir();
+    mkdirSync(join(cwd, "s"));
+    const good = "id: x/good\nworld: payments\ndescription: d\ntask: t\n";
+    writeFileSync(join(cwd, "s", "a.yaml"), good);
+    writeFileSync(join(cwd, "s", "b.yaml"), good);
+    writeFileSync(join(cwd, "s", "c.yaml"), "id: x/c\nworld: nowhere\ndescription: d\ntask: t\n");
+    writeFileSync(join(cwd, "s", "d.json"), "{ not json");
+    const r = runCli(["validate", "s"], { cwd });
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain(`ok   ${join("s", "a.yaml")} (x/good)`);
+    expect(r.stdout).toContain(`FAIL ${join("s", "b.yaml")}: duplicate scenario id "x/good" (also in ${join("s", "a.yaml")})`);
+    expect(r.stdout).toMatch(/FAIL s[/\\]c\.yaml: world .*nowhere/);
+    expect(r.stdout).toMatch(/FAIL s[/\\]d\.json: cannot parse/);
+    expect(r.stdout).toContain("3 of 4 scenario file(s) have errors");
+    const json = runCli(["validate", join("s", "a.yaml"), "--json"], { cwd });
+    expect(json.status).toBe(0);
+    expect(JSON.parse(json.stdout)).toEqual([{ file: join("s", "a.yaml"), id: "x/good", ok: true }]);
+    expect(runCli(["validate", "missing"], { cwd }).stderr).toContain("missing: not found");
+    mkdirSync(join(cwd, "empty"));
+    expect(runCli(["validate", "empty"], { cwd })).toMatchObject({ status: 1, stdout: "No scenario files (.yaml, .yml, .json) under empty\n" });
+  });
+
+  it("ui refuses a bad port before starting", () => {
+    expectUsageError(runCli(["ui", "--port", "http"]), /--port must be a port number, 0-65535/);
+    expectUsageError(runCli(["ui", "--port", "70000"]), /--port must be a port number/);
+  });
+});

@@ -116,7 +116,7 @@ export function renderReportHtml(report: RunReport, opts: ReportHtmlOptions = {}
   <div class="panel"><h2>Trials</h2><ul class="trial-nav">${trialNav}</ul>
     <div>Flaky rate ${pct(report.stats.flakyRate)} · critical-rate 95% lower bound ${pct(report.stats.criticalRateLower95)} · faults fired in ${report.stats.trialsWithFault}/${report.stats.total} trials</div></div>
   <div class="toolbar">
-    <input type="search" id="call-search" placeholder="Filter calls (tool, argument, response)  /" aria-label="Filter calls"/>
+    <input type="search" id="call-search" placeholder="Filter calls (press /)" aria-label="Filter calls by tool, argument, or response"/>
     <label><input type="checkbox" id="filter-faults"/> only calls with faults, errors, or findings</label>
     <span>Click a call for arguments, responses, and state; click a call id in a finding to jump to it.</span>
   </div>

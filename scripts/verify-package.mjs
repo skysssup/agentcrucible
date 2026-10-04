@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Packs the package (or takes --tarball <file>), installs it into an empty project outside
 // the checkout, and exercises the installed CLI, library, and type declarations.
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -34,7 +34,7 @@ try {
   const listing = execFileSync("tar", ["-tzf", tarball], { encoding: "utf8" }).trim().split("\n").map((f) => f.replace(/^package\//, ""));
   const unexpected = listing.filter((f) => !/^(dist\/.+\.(js|d\.ts)|scenarios\/.+\.yaml|README\.md|LICENSE|CHANGELOG\.md|package\.json)$/.test(f));
   check("tarball holds only dist, scenarios, README, LICENSE, CHANGELOG, package.json", unexpected.length === 0, unexpected.join(", "));
-  for (const required of ["dist/cli.js", "dist/index.js", "dist/index.d.ts", "README.md", "LICENSE", "CHANGELOG.md"]) {
+  for (const required of ["dist/cli.js", "dist/index.js", "dist/index.d.ts", "dist/ui/app.js", "README.md", "LICENSE", "CHANGELOG.md"]) {
     check(`tarball includes ${required}`, listing.includes(required));
   }
   const bundled = listing.filter((f) => f.startsWith("scenarios/")).length;
@@ -128,6 +128,55 @@ try {
   writeFileSync(join(consumer, "baseline.json"), JSON.stringify(baseline));
   const worse = cli("run", "--scenario", "workflows/refund-notify-resolve", "--agent", "workflow-reconcile", "--trials", "2", "--out", "traces", "--baseline", "baseline.json");
   check("run --baseline exits 2 on a regression", worse.status === 2 && worse.stdout.includes("REGRESSION workflows/refund-notify-resolve workflow-reconcile: SAFE_SUCCESS -> DEGRADED"), worse.stderr || worse.stdout.slice(-300));
+
+  const starter = join(consumer, "starter");
+  mkdirSync(starter);
+  const inStarter = (...cliArgs) => run(bin, cliArgs, starter);
+  const init = inStarter("init");
+  check("init writes a starter project", init.status === 0 && init.stdout.includes("created  agentcrucible.config.json"), init.stderr || init.stdout);
+  const validate = inStarter("validate");
+  check("validate accepts the starter and bundled scenarios", validate.status === 0 && /^\d+ scenario file\(s\) valid$/m.test(validate.stdout), validate.stderr || validate.stdout.slice(-300));
+  const starterRun = inStarter("run", "--json");
+  let starterReport;
+  try {
+    starterReport = JSON.parse(starterRun.stdout);
+  } catch {
+    starterReport = undefined;
+  }
+  check("run grades the starter agent on the starter scenario", starterRun.status === 0 && starterReport?.agentId === "my-agent" && starterReport?.aggregateVerdict === "SAFE_SUCCESS", starterRun.stderr || starterRun.stdout.slice(-300));
+
+  const ui = spawn(bin, ["ui", "--port", "0"], { cwd: starter, env: { ...process.env, NO_COLOR: "1" } });
+  try {
+    const address = await new Promise((resolveAddress, reject) => {
+      let out = "";
+      const timer = setTimeout(() => reject(new Error(`no address after 15s: ${out}`)), 15_000);
+      ui.stdout.on("data", (chunk) => {
+        out += chunk;
+        const match = /UI: (http:\/\/127\.0\.0\.1:\d+\/)/.exec(out);
+        if (match) {
+          clearTimeout(timer);
+          resolveAddress(match[1]);
+        }
+      });
+      ui.on("exit", (code) => reject(new Error(`ui exited with ${code}: ${out}`)));
+    });
+    const page = await (await fetch(address)).text();
+    const token = /name="agentcrucible-token" content="([0-9a-f]+)"/.exec(page)?.[1];
+    const bundle = await fetch(`${address}app.js`);
+    const bundleText = await bundle.text();
+    check("ui serves its page and browser bundle from the installed package", Boolean(token) && bundle.status === 200 && bundle.headers.get("content-type")?.startsWith("text/javascript") && bundleText.includes("agentcrucible-token") && !/https?:\/\/(?!127)/.test(page + bundleText.replace(/"http:\/\/www\.w3\.org[^"]*"/g, "")), `status ${bundle.status}`);
+    const scenarios = await (await fetch(`${address}api/scenarios`, { headers: { "x-agentcrucible-token": token ?? "" } })).json();
+    check("the ui API lists the bundled and starter scenarios", Array.isArray(scenarios) && scenarios.length === inRepo + 1 && scenarios.some((s) => s.id === "project/refund-lost-response"), JSON.stringify(scenarios).slice(0, 200));
+    const denied = await fetch(`${address}api/scenarios`);
+    check("the ui API refuses requests without the session token", denied.status === 403);
+    const exited = new Promise((resolveExit) => ui.on("exit", (code) => resolveExit(code)));
+    ui.kill("SIGINT");
+    check("ui stops on SIGINT with exit 0", (await exited) === 0);
+  } catch (err) {
+    check("ui starts from the installed package", false, err.message);
+  } finally {
+    ui.kill();
+  }
 
   writeFileSync(
     join(consumer, "typed.ts"),

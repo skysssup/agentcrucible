@@ -1,16 +1,19 @@
 #!/usr/bin/env node
 import { accessSync, constants, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { isIP } from "node:net";
 import { join } from "node:path";
 import { compareBaseline, createBaseline, readBaseline, writeBaseline, type BaselineComparison } from "./baseline.js";
 import { findConfigPath, loadConfig, loadConfigFile, type CrucibleConfig } from "./config.js";
 import { DEMO_SCENARIO, runDemo } from "./demo.js";
 import type { RunIndexEntry } from "./html.js";
+import { initProject } from "./init.js";
 import { formatTrialDetail, painter, printReport, readReportFile, shouldColor, worstTrial, writeHtmlReport, writeJsonReport, writeJUnitReport, writeRunIndex } from "./report.js";
 import { builtinRegistry, isModulePath, loadAgentModule, loadExtension, type Registry } from "./registry.js";
 import { replayReport } from "./replay.js";
 import { parseTrials, runScenario } from "./runner.js";
-import { bundledScenariosDir, findScenarios, loadAllScenarios } from "./scenarios.js";
+import { bundledScenariosDir, findScenarios, loadAllScenarios, loadScenarioFile, scenarioFiles } from "./scenarios.js";
 import { VERDICTS, type RunReport, type Scenario, type Verdict } from "./types.js";
+import { startUi, type UiServer } from "./ui/server.js";
 import { atLeast } from "./verdict.js";
 import { VERSION } from "./version.js";
 
@@ -18,6 +21,8 @@ class UsageError extends Error {}
 
 /** Trials per agent for `check`, so seeded faults get several chances to fire. */
 const CHECK_TRIALS = 5;
+/** Port `ui` tries first; the next nine are tried when it is taken. */
+const UI_PORT = 7357;
 
 type FlagSpec = Record<string, "value" | "boolean">;
 type Flags = Record<string, string | true>;
@@ -25,6 +30,8 @@ interface Command {
   flags: FlagSpec;
   /** Name of the one positional argument the command takes, if any. */
   positional?: string;
+  /** The positional argument may be left out. */
+  optional?: boolean;
   run: (flags: Flags, positional?: string) => Promise<number> | number;
 }
 
@@ -54,6 +61,12 @@ const COMMANDS: Record<string, Command> = {
   check: { flags: { ...SELECT, "--trials": "value", "--json": "boolean" }, run: cmdCheck },
   inspect: { flags: { "--trial": "value", "--call": "value", "--scenario": "value" }, positional: "report", run: cmdInspect },
   replay: { flags: { "--scenario": "value", "--json": "boolean", "--config": "value" }, positional: "report", run: cmdReplay },
+  validate: { flags: { "--json": "boolean", "--config": "value" }, positional: "path", optional: true, run: cmdValidate },
+  ui: {
+    flags: { "--port": "value", "--host": "value", "--out": "value", "--baseline": "value", "--agents": "value", "--config": "value" },
+    run: cmdUi,
+  },
+  init: { flags: {}, run: cmdInit },
   agents: { flags: { "--config": "value" }, run: cmdAgents },
   worlds: { flags: { "--config": "value" }, run: cmdWorlds },
   faults: { flags: { "--config": "value" }, run: cmdFaults },
@@ -109,7 +122,7 @@ function parseArgs(command: string, args: string[], spec: Command): { flags: Fla
     }
     flags[name] = value;
   }
-  if (spec.positional && positional === undefined) throw new UsageError(`${command} needs a ${spec.positional} file: agentcrucible ${command} <${spec.positional}.json>`);
+  if (spec.positional && !spec.optional && positional === undefined) throw new UsageError(`${command} needs a ${spec.positional} file: agentcrucible ${command} <${spec.positional}.json>`);
   return { flags, positional };
 }
 
@@ -458,6 +471,105 @@ async function cmdFaults(flags: Flags): Promise<number> {
   return 0;
 }
 
+/** Parses every scenario file and reports each problem, without running anything. */
+async function cmdValidate(flags: Flags, path?: string): Promise<number> {
+  const { cfg, registry } = await context(flags);
+  const files = path ? scenarioFiles(path) : scenarioRoots(cfg).flatMap((root) => scenarioFiles(root));
+  const seen = new Map<string, string>();
+  const rows = files.map((file): { file: string; id?: string; ok: boolean; error?: string } => {
+    try {
+      const { id } = loadScenarioFile(file, registry);
+      const previous = seen.get(id);
+      if (previous) return { file, id, ok: false, error: `duplicate scenario id "${id}" (also in ${previous})` };
+      seen.set(id, file);
+      return { file, id, ok: true };
+    } catch (err) {
+      return { file, ok: false, error: (err as Error).message };
+    }
+  });
+  const failed = rows.filter((r) => !r.ok);
+  if (flags["--json"] === true) {
+    console.log(JSON.stringify(rows, null, 2));
+    return failed.length ? 1 : 0;
+  }
+  if (path) for (const r of rows.filter((r) => r.ok)) console.log(`ok   ${r.file} (${r.id})`);
+  for (const r of failed) console.log(`FAIL ${r.error!.startsWith(r.file) ? r.error : `${r.file}: ${r.error}`}`);
+  console.log(
+    files.length === 0
+      ? `No scenario files (.yaml, .yml, .json) under ${path}`
+      : failed.length
+        ? `${failed.length} of ${files.length} scenario file(s) have errors`
+        : `${files.length} scenario file(s) valid`
+  );
+  return failed.length || files.length === 0 ? 1 : 0;
+}
+
+/** Serves the local UI until interrupted. */
+async function cmdUi(flags: Flags): Promise<number> {
+  const ctx = await context(flags);
+  let { registry } = ctx;
+  const modules = [...(ctx.cfg.agent && isModulePath(ctx.cfg.agent) ? [ctx.cfg.agent] : []), ...(str(flags, "--agents") ?? "").split(",").map((a) => a.trim()).filter(Boolean)];
+  for (const value of new Set(modules)) registry = (await resolveAgent(value, registry)).registry;
+  const host = str(flags, "--host") ?? "127.0.0.1";
+  const rawPort = str(flags, "--port");
+  if (rawPort !== undefined && !(/^\d+$/.test(rawPort) && Number(rawPort) <= 65535)) throw new UsageError(`--port must be a port number, 0-65535 (got "${rawPort}")`);
+  const out = str(flags, "--out") ?? ctx.cfg.out ?? ".agentcrucible/out";
+  const options = {
+    host,
+    outDir: out,
+    scenarioRoots: scenarioRoots(ctx.cfg),
+    scenarioDir: ctx.cfg.scenarioDirs?.[0],
+    baselinePath: str(flags, "--baseline") ?? "agentcrucible-baseline.json",
+    registry,
+    failOn: failOn(flags, ctx.cfg),
+  };
+  const ports = rawPort === undefined ? [...Array.from({ length: 10 }, (_, i) => UI_PORT + i), 0] : [Number(rawPort)];
+  let server: UiServer | undefined;
+  for (const port of ports) {
+    try {
+      server = await startUi({ ...options, port });
+      break;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EADDRINUSE") throw err;
+      if (rawPort !== undefined) throw new UsageError(`port ${rawPort} is in use; choose another with --port, or --port 0 for any free port`);
+    }
+  }
+  console.log(`AgentCrucible ${VERSION} UI: ${server!.url}`);
+  console.log(`  scenarios: bundled${ctx.cfg.scenarioDirs?.length ? `, ${ctx.cfg.scenarioDirs.join(", ")}` : ""}${options.scenarioDir ? ` (the editor saves to ${options.scenarioDir})` : ' (add "scenarioDirs" to the config file to save from the editor)'}`);
+  console.log(`  reports:   ${out}`);
+  console.log(`  baseline:  ${options.baselinePath}`);
+  if (!["127.0.0.1", "::1", "localhost"].includes(host)) {
+    console.error(`warning: listening on ${host}${isIP(host) ? "" : " (a host name)"}; anyone who can reach it can run agents and write reports, scenarios, and the baseline here.`);
+  }
+  console.log("Press Ctrl+C to stop.");
+  await new Promise<void>((resolveStop) => {
+    process.once("SIGINT", () => resolveStop());
+    process.once("SIGTERM", () => resolveStop());
+  });
+  await server!.close();
+  return 0;
+}
+
+function cmdInit(): number {
+  const { created, skipped } = initProject();
+  for (const path of created) console.log(`created  ${path}`);
+  for (const { path, reason } of skipped) console.log(`skipped  ${path} (${reason})`);
+  if (created.length === 0) {
+    console.log("Nothing to do: the starter files are already here.");
+    return 0;
+  }
+  console.log(`
+Next steps:
+  agentcrucible validate   check the scenario files
+  agentcrucible run        run the "project" scenarios against agents/my-agent.mjs
+  agentcrucible check      confirm every scenario's expected_verdicts
+  agentcrucible ui         browse, run, compare, and edit scenarios in a browser`);
+  if (skipped.some((s) => s.path === "agentcrucible.config.json")) {
+    console.log('\nYour config file was left unchanged. To use the starter files, add "scenarios" to its scenarioDirs and set agent to "./agents/my-agent.mjs".');
+  }
+  return 0;
+}
+
 function cmdConfig(flags: Flags): number {
   const explicit = str(flags, "--config");
   const path = explicit ?? findConfigPath();
@@ -483,6 +595,9 @@ Commands:
   check       Verify each scenario's expected_verdicts against the registered agents
   inspect     Show a saved report call by call (inspect <report.json> [--trial n] [--call call_2])
   replay      Re-execute a saved report's tool calls and confirm they reproduce (replay <report.json>)
+  validate    Check scenario files without running them (validate [file or directory])
+  ui          Browse, run, compare, and edit scenarios in a local web UI
+  init        Write a starter config, scenario, and agent into the current directory
   agents      List agents (built-in and from extensions)
   worlds      List mock worlds with their tools and record kinds
   faults      List fault kinds
@@ -510,10 +625,15 @@ check options:   --scenario, --tag, --trials (default ${CHECK_TRIALS}), --json, 
 demo options:    --scenario (default ${DEMO_SCENARIO}), --out <dir> to also write reports, --config
 inspect options: --trial <n> (default: the worst trial), --call <id>, --scenario <id> for multi-report files
 replay options:  --scenario <id>, --json, --config (to load extension worlds and faults)
+validate:        a file or directory (default: the bundled and configured scenario directories), --json, --config
+ui options:      --port <n> (default ${UI_PORT}, or the next free one), --host <addr> (default 127.0.0.1),
+                 --out <dir>, --baseline <file> (default agentcrucible-baseline.json),
+                 --agents ./a.mjs,./b.mjs to add agent modules, --config
 
 Verdicts, most to least severe: ${VERDICTS.join(", ")}
 
-Exit status: 0 ok; 1 usage, config, scenario, or extension error; 2 a verdict at or above --fail-on
+Exit status: 0 ok; 1 usage, config, scenario, or extension error (validate: a file with errors);
+2 a verdict at or above --fail-on
 (run, compare), a regression against --baseline (run), an expected verdict that did not hold
 (check, demo), or a replay that did not reproduce (replay).`;
 
