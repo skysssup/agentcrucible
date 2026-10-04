@@ -119,6 +119,29 @@ describe("UI server security", () => {
     expect((await api(`/api/report?key=${encodeURIComponent("file:missing.report.json")}`)).status).toBe(404);
   });
 
+  it.each([
+    ["/api/validate", {}],
+    ["/api/validate", { text: 5 }],
+    ["/api/run", { scenarioIds: "payments/rate-limit" }],
+    ["/api/run", { scenarioIds: [1] }],
+    ["/api/run", { scenarioIds: ["payments/rate-limit"], agents: "naive-retry" }],
+    ["/api/run", { scenarioIds: ["payments/rate-limit"], seed: 5 }],
+    ["/api/run", { scenarioIds: ["payments/rate-limit"], seed: " " }],
+    ["/api/run", { scenarioIds: ["payments/rate-limit"], trials: { n: 1 } }],
+    ["/api/run", { text: ["id: x"] }],
+    ["/api/replay", {}],
+    ["/api/replay", { key: ["mem-1"] }],
+    ["/api/save", { keys: "mem-1" }],
+    ["/api/save", { keys: [] }],
+    ["/api/baseline/save", { keys: "mem-1" }],
+    ["/api/baseline/save", {}],
+    ["/api/scenario/save", { text: null }],
+  ])("answers %s %j with 400, not a crash", async (path, body) => {
+    const res = await api(path, body);
+    expect(res.status, JSON.stringify(res.json)).toBe(400);
+    expect(res.json.error).toEqual(expect.any(String));
+  });
+
   it("rejects malformed and oversized bodies", async () => {
     expect((await api("/api/validate", "not json")).status).toBe(400);
     expect((await api("/api/validate", "[1]")).status).toBe(400);

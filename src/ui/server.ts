@@ -125,7 +125,7 @@ export async function startUi(opts: UiOptions): Promise<UiServer> {
       };
     },
     "POST /api/validate": async (req) => {
-      const { text } = await body<{ text: string }>(req);
+      const text = stringField((await body(req)).text, "text");
       try {
         const scenario = parseDraft(text, opts.registry);
         return { ok: true, summary: scenarioSummary(scenario, opts.scenarioRoots), expect: expectParts({ scenario } as RunReport) };
@@ -134,10 +134,12 @@ export async function startUi(opts: UiOptions): Promise<UiServer> {
       }
     },
     "POST /api/run": async (req) => {
-      const input = await body<{ scenarioIds?: string[]; text?: string; agents?: string[]; trials?: number; seed?: string }>(req);
-      const chosen: Scenario[] = input.text !== undefined ? [parseDraftOr400(input.text, opts.registry)] : (input.scenarioIds ?? []).map(findScenario);
+      const input = await body(req);
+      const chosen: Scenario[] =
+        input.text !== undefined ? [parseDraftOr400(stringField(input.text, "text"), opts.registry)] : stringList(input.scenarioIds, "scenarioIds").map(findScenario);
       if (chosen.length === 0) throw new HttpError(400, "choose at least one scenario");
-      const agents = input.agents?.length ? input.agents : undefined;
+      const requested = stringList(input.agents, "agents");
+      const agents = requested.length ? requested : undefined;
       for (const id of agents ?? []) if (!opts.registry.agents.has(id)) throw new HttpError(400, `unknown agent ${id}`);
       let trials: number;
       try {
@@ -145,14 +147,15 @@ export async function startUi(opts: UiOptions): Promise<UiServer> {
       } catch (err) {
         throw new HttpError(400, (err as Error).message);
       }
-      if (input.seed !== undefined && (typeof input.seed !== "string" || !input.seed.trim())) throw new HttpError(400, "seed must be a non-empty string");
+      const seed = input.seed === undefined ? undefined : stringField(input.seed, "seed");
+      if (seed !== undefined && !seed.trim()) throw new HttpError(400, "seed must be a non-empty string");
       const runId = `run-${nextRun++}`;
       const results: ReportSummary[] = [];
       for (const scenario of chosen) {
         const ids = agents ?? Object.keys(scenario.expectedVerdicts);
         if (ids.length === 0) throw new HttpError(400, `${scenario.id} lists no expected agents; choose agents to run`);
         for (const agentId of ids) {
-          const r = await runScenario({ scenario, agentId, trials, seed: input.seed, registry: opts.registry });
+          const r = await runScenario({ scenario, agentId, trials, seed, registry: opts.registry });
           results.push({ key: remember(r), ...reportSummary(r), expected: scenario.expectedVerdicts[agentId] ?? null });
         }
       }
@@ -176,12 +179,10 @@ export async function startUi(opts: UiOptions): Promise<UiServer> {
       return { outDir: opts.outDir, saved, memory: [...memory].reverse().map(([key, r]) => ({ key, ...reportSummary(r) })) };
     },
     "GET /api/report": (_req, url) => report(param(url, "key")),
-    "POST /api/replay": async (req) => replayReport(report((await body<{ key: string }>(req)).key), opts.registry),
+    "POST /api/replay": async (req) => replayReport(report(stringField((await body(req)).key, "key")), opts.registry),
     "POST /api/save": async (req) => {
-      const { keys } = await body<{ keys: string[] }>(req);
-      if (!Array.isArray(keys) || keys.length === 0 || keys.some((k) => typeof k !== "string" || !k.startsWith("mem-"))) {
-        throw new HttpError(400, "choose runs from this session to save (keys mem-N)");
-      }
+      const keys = stringList((await body(req)).keys, "keys");
+      if (keys.length === 0 || keys.some((k) => !k.startsWith("mem-"))) throw new HttpError(400, "choose runs from this session to save (keys mem-N)");
       const files = keys.map((key) => {
         const r = report(key);
         const dir = join(opts.outDir, encodeURIComponent(r.agentId));
@@ -201,19 +202,21 @@ export async function startUi(opts: UiOptions): Promise<UiServer> {
       }
     },
     "POST /api/baseline/compare": async (req) => {
-      const { keys } = await body<{ keys: string[] }>(req);
+      const keys = stringList((await body(req)).keys, "keys");
       if (!existsSync(opts.baselinePath)) throw new HttpError(404, `baseline ${opts.baselinePath} not found; save one first`);
-      return compareBaseline(readBaseline(opts.baselinePath), (keys ?? []).map(report));
+      return compareBaseline(readBaseline(opts.baselinePath), keys.map(report));
     },
     "POST /api/baseline/save": async (req) => {
-      const { keys } = await body<{ keys: string[] }>(req);
-      if (!keys?.length) throw new HttpError(400, "choose at least one report");
+      const keys = stringList((await body(req)).keys, "keys");
+      if (keys.length === 0) throw new HttpError(400, "choose at least one report");
       const baseline = createBaseline(keys.map(report));
       writeBaseline(opts.baselinePath, baseline);
       return { path: opts.baselinePath, entries: baseline.entries.length };
     },
     "POST /api/scenario/save": async (req) => {
-      const { text, overwrite } = await body<{ text: string; overwrite?: boolean }>(req);
+      const input = await body(req);
+      const text = stringField(input.text, "text");
+      const overwrite = input.overwrite === true;
       if (!opts.scenarioDir) throw new HttpError(400, 'no scenario directory to save to; add "scenarioDirs" to the config file');
       const scenario = parseDraftOr400(text, opts.registry);
       const path = resolve(opts.scenarioDir, ...scenario.id.split("/")) + ".yaml";
@@ -388,7 +391,18 @@ function param(url: URL, name: string): string {
   return value;
 }
 
-async function body<T>(req: IncomingMessage): Promise<T> {
+function stringField(value: unknown, name: string): string {
+  if (typeof value !== "string") throw new HttpError(400, `${name} must be a string`);
+  return value;
+}
+
+function stringList(value: unknown, name: string): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || !value.every((v) => typeof v === "string")) throw new HttpError(400, `${name} must be a list of strings`);
+  return value;
+}
+
+async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
   let size = 0;
   const chunks: Buffer[] = [];
   for await (const chunk of req) {
@@ -399,7 +413,7 @@ async function body<T>(req: IncomingMessage): Promise<T> {
   try {
     const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("not an object");
-    return parsed as T;
+    return parsed as Record<string, unknown>;
   } catch {
     throw new HttpError(400, "the request body must be a JSON object");
   }
