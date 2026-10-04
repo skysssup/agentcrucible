@@ -1,0 +1,75 @@
+/** Stroke icons drawn on a 24-unit grid, inlined so the page loads nothing. */
+const PATHS = {
+  home: '<path d="M3.5 10.5 12 3.5l8.5 7"/><path d="M5.5 9v10.5a1 1 0 0 0 1 1H10v-6h4v6h3.5a1 1 0 0 0 1-1V9"/>',
+  play: '<path d="M7.5 5.2v13.6a.8.8 0 0 0 1.2.7l11-6.8a.8.8 0 0 0 0-1.4l-11-6.8a.8.8 0 0 0-1.2.7z"/>',
+  sparkles: '<path d="M10 3.5l1.6 4.4 4.4 1.6-4.4 1.6L10 15.5l-1.6-4.4L4 9.5l4.4-1.6z"/><path d="M18 14l.8 2.2 2.2.8-2.2.8L18 20l-.8-2.2-2.2-.8 2.2-.8z"/>',
+  layers: '<path d="M12 3 3 7.5l9 4.5 9-4.5z"/><path d="m3 12 9 4.5 9-4.5"/><path d="m3 16.5 9 4.5 9-4.5"/>',
+  code: '<path d="m8.5 7.5-5 4.5 5 4.5"/><path d="m15.5 7.5 5 4.5-5 4.5"/><path d="m13.5 4.5-3 15"/>',
+  runs: '<circle cx="12" cy="12" r="8.5"/><path d="M10.2 8.8v6.4a.5.5 0 0 0 .75.43l5.2-3.2a.5.5 0 0 0 0-.86l-5.2-3.2a.5.5 0 0 0-.75.43z"/>',
+  file: '<path d="M14 3.5H7.5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8z"/><path d="M14 3.5V8h4.5"/><path d="M9 12.5h6M9 16.5h4"/>',
+  compare: '<path d="M7.5 4v14"/><path d="m4.5 15 3 3 3-3"/><path d="M16.5 20V6"/><path d="m13.5 9 3-3 3 3"/>',
+  book: '<path d="M12 6.5c-1.6-1.4-3.9-2-7.5-2v13c3.6 0 5.9.6 7.5 2 1.6-1.4 3.9-2 7.5-2v-13c-3.6 0-5.9.6-7.5 2z"/><path d="M12 6.5v13"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/>',
+  check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+  x: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
+  checkCircle: '<circle cx="12" cy="12" r="8.5"/><path d="m8.5 12.3 2.4 2.4 4.6-5"/>',
+  xCircle: '<circle cx="12" cy="12" r="8.5"/><path d="m9.5 9.5 5 5M14.5 9.5l-5 5"/>',
+  alert: '<path d="M10.4 4.4 2.9 17.5a1.8 1.8 0 0 0 1.6 2.7h15a1.8 1.8 0 0 0 1.6-2.7L13.6 4.4a1.8 1.8 0 0 0-3.2 0z"/><path d="M12 9.5v4"/><path d="M12 17h.01"/>',
+  octagon: '<path d="M8.3 3h7.4L21 8.3v7.4L15.7 21H8.3L3 15.7V8.3z"/><path d="M12 7.5v5.5"/><path d="M12 16.5h.01"/>',
+  eyeOff: '<path d="M3.5 3.5l17 17"/><path d="M10.6 5.6A9.6 9.6 0 0 1 12 5.5c4.8 0 8 3.6 9.2 6.5-.5 1.2-1.3 2.4-2.3 3.5"/><path d="M6.6 6.7C4.8 7.9 3.5 9.8 2.8 12c1.2 2.9 4.4 6.5 9.2 6.5 1.6 0 3.1-.4 4.4-1.1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
+  help: '<circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.4a2.5 2.5 0 1 1 3.4 2.4c-.6.2-1 .8-1 1.5v.5"/><path d="M12 16.8h.01"/>',
+  shield: '<path d="M12 3.2 5 6v5.6c0 4.3 3 7.8 7 9.2 4-1.4 7-4.9 7-9.2V6z"/><path d="M9 12h6"/>',
+  shieldCheck: '<path d="M12 3.2 5 6v5.6c0 4.3 3 7.8 7 9.2 4-1.4 7-4.9 7-9.2V6z"/><path d="m9.2 12.2 2 2 3.8-4"/>',
+  zap: '<path d="M13 2.8 4.8 13.2H12l-1 8 8.2-10.4H12z"/>',
+  sun: '<circle cx="12" cy="12" r="3.8"/><path d="M12 2.8v1.8M12 19.4v1.8M4.6 4.6l1.3 1.3M18.1 18.1l1.3 1.3M2.8 12h1.8M19.4 12h1.8M4.6 19.4l1.3-1.3M18.1 5.9l1.3-1.3"/>',
+  moon: '<path d="M19.5 14.6A7.8 7.8 0 0 1 9.4 4.5a7.8 7.8 0 1 0 10.1 10.1z"/>',
+  monitor: '<rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M8.5 20h7M12 16.5V20"/>',
+  chevronRight: '<path d="m9.5 6 6 6-6 6"/>',
+  chevronDown: '<path d="m6 9.5 6 6 6-6"/>',
+  arrowRight: '<path d="M4.5 12h15"/><path d="m13.5 6 6 6-6 6"/>',
+  copy: '<rect x="8.5" y="8.5" width="12" height="12" rx="2.2"/><path d="M15.5 8.5V5.7a2.2 2.2 0 0 0-2.2-2.2H5.7a2.2 2.2 0 0 0-2.2 2.2v7.6a2.2 2.2 0 0 0 2.2 2.2h2.8"/>',
+  download: '<path d="M12 3.5v11.5"/><path d="m7 10.5 5 5 5-5"/><path d="M4.5 20h15"/>',
+  save: '<path d="M5.2 3.5h10.6l3.7 3.7v11.6a1.7 1.7 0 0 1-1.7 1.7H5.2a1.7 1.7 0 0 1-1.7-1.7V5.2a1.7 1.7 0 0 1 1.7-1.7z"/><path d="M7.5 3.5v4.5h7.5V3.5"/><path d="M7 20.5v-6.5h10v6.5"/>',
+  replay: '<path d="M3.8 12a8.2 8.2 0 1 0 2.4-5.8"/><path d="M3.5 3.8v4.4h4.4"/>',
+  external: '<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  folder: '<path d="M3.5 7.2c0-.9.7-1.7 1.7-1.7h3.9l2 2.3h7.7c.9 0 1.7.8 1.7 1.7v8.3c0 .9-.8 1.7-1.7 1.7H5.2c-1 0-1.7-.8-1.7-1.7z"/>',
+  card: '<rect x="2.8" y="5.2" width="18.4" height="13.6" rx="2.2"/><path d="M2.8 10h18.4"/><path d="M6.5 15h4"/>',
+  mail: '<rect x="2.8" y="5.2" width="18.4" height="13.6" rx="2.2"/><path d="m3.5 7 8.5 6.2L20.5 7"/>',
+  database: '<ellipse cx="12" cy="5.8" rx="7.5" ry="2.8"/><path d="M4.5 5.8v12.4c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8V5.8"/><path d="M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8"/>',
+  ticket: '<path d="M3.5 7.2c0-.9.8-1.7 1.7-1.7h13.6c.9 0 1.7.8 1.7 1.7v2.3a2.5 2.5 0 0 0 0 5v2.3c0 .9-.8 1.7-1.7 1.7H5.2c-.9 0-1.7-.8-1.7-1.7v-2.3a2.5 2.5 0 0 0 0-5z"/><path d="M14.5 5.5v13" stroke-dasharray="1.6 2.2"/>',
+  workflow: '<rect x="3" y="3.5" width="7" height="6.5" rx="1.6"/><rect x="14" y="14" width="7" height="6.5" rx="1.6"/><path d="M6.5 10v3.2a2.3 2.3 0 0 0 2.3 2.3H14"/>',
+  cube: '<path d="M12 3 4 7.3v9.4L12 21l8-4.3V7.3z"/><path d="m4 7.3 8 4.4 8-4.4"/><path d="M12 11.7V21"/>',
+  bot: '<rect x="4.5" y="8" width="15" height="11.5" rx="3"/><path d="M12 4.5V8"/><circle cx="12" cy="3.8" r=".9"/><path d="M9.2 13h.01M14.8 13h.01"/><path d="M9.8 16.3h4.4"/>',
+  terminal: '<path d="m5 7.5 4.5 4.5L5 16.5"/><path d="M12 17h7"/>',
+  target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.8"/><circle cx="12" cy="12" r="1.2"/>',
+  lock: '<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/>',
+  message: '<path d="M20.5 11.6c0 4.2-3.8 7.6-8.5 7.6-1.1 0-2.2-.2-3.2-.5L4 20.2l1.3-3.7a7.1 7.1 0 0 1-1.8-4.9C3.5 7.4 7.3 4 12 4s8.5 3.4 8.5 7.6z"/>',
+  gauge: '<path d="M4.2 17.5a8.5 8.5 0 1 1 15.6 0"/><path d="m12 13.5 3.6-3.6"/><circle cx="12" cy="13.5" r="1.1"/>',
+  hash: '<path d="M9.5 3.5 7.5 20.5M16.5 3.5l-2 17M4 9h16.5M3.5 15H20"/>',
+  repeat: '<path d="m16.5 3 3.5 3.5-3.5 3.5"/><path d="M4 11.5v-.8a4.2 4.2 0 0 1 4.2-4.2H20"/><path d="m7.5 21-3.5-3.5L7.5 14"/><path d="M20 12.5v.8a4.2 4.2 0 0 1-4.2 4.2H4"/>',
+  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  command: '<path d="M9 6.5A2.5 2.5 0 1 0 6.5 9H9zM9 9v6M15 9v6M9 15H6.5A2.5 2.5 0 1 0 9 17.5zM15 15h2.5a2.5 2.5 0 1 1-2.5 2.5zM15 9V6.5A2.5 2.5 0 1 1 17.5 9zM9 9h6M9 15h6"/>',
+  filter: '<path d="M4 5.5h16l-6.2 7.3v5.4l-3.6 1.6v-7z"/>',
+  grid: '<rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/>',
+  list: '<path d="M9 6.5h11M9 12h11M9 17.5h11"/><path d="M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01"/>',
+  flask: '<path d="M9.5 3.5h5M10.5 3.5v5.2L4.9 18.2a1.5 1.5 0 0 0 1.3 2.3h11.6a1.5 1.5 0 0 0 1.3-2.3l-5.6-9.5V3.5"/><path d="M7.4 14h9.2"/>',
+  wand: '<path d="m14.5 4.5 5 5L8 21l-5-5z"/><path d="m11.5 7.5 5 5"/>',
+  info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5"/><path d="M12 7.8h.01"/>',
+  dot: '<circle cx="12" cy="12" r="3.5" fill="currentColor" stroke="none"/>',
+} as const;
+
+export type IconName = keyof typeof PATHS;
+
+export function icon(name: IconName, size = 16, extra = ""): string {
+  return `<svg class="i${extra ? ` ${extra}` : ""}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${PATHS[name]}</svg>`;
+}
+
+let logos = 0;
+
+/** The brand mark: an ember tile holding a crucible with a spark above it. */
+export function logo(size = 28): string {
+  const id = `ac-ember-${++logos}`;
+  return `<svg class="logo" width="${size}" height="${size}" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffb35c"/><stop offset=".5" stop-color="#ff6a2b"/><stop offset="1" stop-color="#e5384d"/></linearGradient></defs><rect width="32" height="32" rx="8.5" fill="url(#${id})"/><path d="M8.5 13.5h15l-1.9 8.7a2.6 2.6 0 0 1-2.5 2.1h-6.2a2.6 2.6 0 0 1-2.5-2.1z" fill="#fff" fill-opacity=".96"/><path d="M7.5 13.5h17" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M16.2 4.8c1.9 1.7 2.6 3.3 1.3 5.2h-3c-1.2-1.8-.4-3.5 1.7-5.2z" fill="#fff" fill-opacity=".9"/></svg>`;
+}

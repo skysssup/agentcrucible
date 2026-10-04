@@ -15,6 +15,7 @@ import { parseTrials, runScenario } from "../runner.js";
 import { loadAllScenarios, parseScenario } from "../scenarios.js";
 import { VERDICTS, type RunReport, type Scenario, type Verdict } from "../types.js";
 import { VERSION } from "../version.js";
+import { logo } from "./client/icons.js";
 import { UI_CSS } from "./styles.js";
 
 export interface UiOptions {
@@ -53,6 +54,8 @@ class HttpError extends Error {
 
 /** Runs kept in memory so the UI can show them before (or without) saving them. */
 const MEMORY_LIMIT = 200;
+/** Runs listed on the Runs page; their reports follow MEMORY_LIMIT. */
+const RUN_LIMIT = 50;
 const BODY_LIMIT = 1_000_000;
 
 /**
@@ -64,6 +67,7 @@ export async function startUi(opts: UiOptions): Promise<UiServer> {
   const host = opts.host ?? "127.0.0.1";
   const token = randomBytes(24).toString("hex");
   const memory = new Map<string, RunReport>();
+  const runs: RunRecord[] = [];
   let nextReport = 1;
   let nextRun = 1;
   const summaryCache = new Map<string, { mtimeMs: number; summary: ReportSummary }>();
@@ -150,18 +154,23 @@ export async function startUi(opts: UiOptions): Promise<UiServer> {
       }
       const seed = input.seed === undefined ? undefined : stringField(input.seed, "seed");
       if (seed !== undefined && !seed.trim()) throw new HttpError(400, "seed must be a non-empty string");
-      const runId = `run-${nextRun++}`;
+      for (const scenario of chosen) {
+        if (!agents && Object.keys(scenario.expectedVerdicts).length === 0) throw new HttpError(400, `${scenario.id} lists no expected agents; choose agents to run`);
+      }
+      const startedAt = new Date().toISOString();
       const results: ReportSummary[] = [];
       for (const scenario of chosen) {
-        const ids = agents ?? Object.keys(scenario.expectedVerdicts);
-        if (ids.length === 0) throw new HttpError(400, `${scenario.id} lists no expected agents; choose agents to run`);
-        for (const agentId of ids) {
+        for (const agentId of agents ?? Object.keys(scenario.expectedVerdicts)) {
           const r = await runScenario({ scenario, agentId, trials, seed, registry: opts.registry });
           results.push({ key: remember(r), ...reportSummary(r), expected: scenario.expectedVerdicts[agentId] ?? null });
         }
       }
-      return { runId, results };
+      const run: RunRecord = { runId: `run-${nextRun++}`, startedAt, scenarios: chosen.map((s) => s.id), agents: agents ?? null, trials, seed: seed ?? null, draft: input.text !== undefined, results };
+      runs.unshift(run);
+      runs.length = Math.min(runs.length, RUN_LIMIT);
+      return run;
     },
+    "GET /api/runs": () => runs,
     "GET /api/reports": () => {
       const saved = listReportFiles(opts.outDir).map((file) => {
         const path = join(opts.outDir, file);
@@ -243,6 +252,8 @@ export async function startUi(opts: UiOptions): Promise<UiServer> {
     const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
     if (req.method === "GET" && url.pathname === "/") return page(res, indexHtml(token));
     if (req.method === "GET" && url.pathname === "/app.css") return asset(res, "text/css", UI_CSS);
+    if (req.method === "GET" && url.pathname === "/theme.js") return asset(res, "text/javascript", THEME_JS);
+    if (req.method === "GET" && url.pathname === "/favicon.svg") return asset(res, "image/svg+xml", logo(32).replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" '));
     if (req.method === "GET" && url.pathname === "/app.js") {
       const bundle = clientBundle();
       if (!bundle) throw new HttpError(503, "the UI bundle is missing; run npm run build");
@@ -287,6 +298,20 @@ export async function startUi(opts: UiOptions): Promise<UiServer> {
 
 /** A report in the API's lists: a summary, or the error that kept a saved file from loading. */
 type ReportSummary = { key: string; file?: string; error?: string; expected?: Verdict | null } & Partial<ReturnType<typeof reportSummary>>;
+
+/** One POST /api/run: what was asked for and a summary of each report it produced. */
+interface RunRecord {
+  runId: string;
+  startedAt: string;
+  scenarios: string[];
+  /** The agents asked for, or null when each scenario ran the agents in its expected_verdicts. */
+  agents: string[] | null;
+  trials: number;
+  seed: string | null;
+  /** True for a run of the editor's unsaved text. */
+  draft: boolean;
+  results: ReportSummary[];
+}
 
 /**
  * Accepts Host headers a browser sends for this server: localhost, an IP literal, or the
@@ -434,7 +459,7 @@ function page(res: ServerResponse, html: string): void {
   res.writeHead(200, {
     "Content-Type": "text/html; charset=utf-8",
     "Cache-Control": "no-store",
-    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-src 'none'; img-src 'self' data:; object-src 'none'; base-uri 'none'",
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
   });
@@ -449,7 +474,9 @@ function indexHtml(token: string): string {
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <meta name="agentcrucible-token" content="${token}"/>
 <title>AgentCrucible</title>
-<link rel="icon" href="data:,"/>
+<meta name="color-scheme" content="light dark"/>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
+<script src="/theme.js"></script>
 <link rel="stylesheet" href="/app.css"/>
 </head>
 <body>
@@ -459,6 +486,9 @@ function indexHtml(token: string): string {
 </html>
 `;
 }
+
+/** Applies the theme saved in the browser before the page paints, so a forced theme does not flash. */
+const THEME_JS = `try { const t = localStorage.getItem("agentcrucible-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch {}\n`;
 
 /** The browser bundle: next to the CLI in dist/ui, or in dist/ui of a checkout when run from source. */
 function clientBundle(): string | undefined {

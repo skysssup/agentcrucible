@@ -79,6 +79,10 @@ describe("UI server security", () => {
     expect(html).not.toMatch(/https?:\/\/(?!127)/);
     expect(res.headers.get("content-security-policy")).toContain("default-src 'self'");
     expect(res.headers.get("content-security-policy")).toContain("object-src 'none'");
+    for (const [path, type] of [["/app.css", "text/css"], ["/theme.js", "text/javascript"], ["/favicon.svg", "image/svg+xml"]]) {
+      const asset = await fetch(url + path);
+      expect([asset.status, asset.headers.get("content-type")?.split(";")[0]]).toEqual([200, type]);
+    }
   });
 
   it("refuses API calls without the session token", async () => {
@@ -219,6 +223,19 @@ describe("UI API", () => {
     const replay = await api("/api/replay", { key: file.key });
     expect(replay.json).toMatchObject({ reproduced: true, trials: [{ reproduced: true }, { reproduced: true }] });
     expect((await api(`/api/report?key=${encodeURIComponent(file.key)}`)).json.aggregateVerdict).toBe("HARMFUL_ACTION");
+  });
+
+  it("keeps each run, newest first, for the Runs page", async () => {
+    const before = (await api("/api/runs")).json.length;
+    const run = await api("/api/run", { scenarioIds: ["payments/rate-limit"], agents: ["honest-stop"], trials: 2, seed: "s1" });
+    expect(run.json).toMatchObject({ scenarios: ["payments/rate-limit"], agents: ["honest-stop"], trials: 2, seed: "s1", draft: false });
+    expect(Date.parse(run.json.startedAt)).not.toBeNaN();
+    const draft = await api("/api/run", { text: DRAFT });
+    expect(draft.json).toMatchObject({ scenarios: ["custom/lost-refund"], agents: null, trials: 1, seed: null, draft: true });
+    const runs = (await api("/api/runs")).json;
+    expect(runs).toHaveLength(before + 2);
+    expect(runs.slice(0, 2).map((r: { runId: string }) => r.runId)).toEqual([draft.json.runId, run.json.runId]);
+    expect(runs[1].results.map((r: { agentId: string }) => r.agentId)).toEqual(["honest-stop"]);
   });
 
   it("saves a baseline from reports and compares later runs with it", async () => {

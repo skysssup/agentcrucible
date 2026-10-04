@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
+import { highlightJson } from "../src/html.js";
 import { parseScenario } from "../src/scenarios.js";
+import { errorLine, highlightYaml } from "../src/ui/client/editor.js";
 import {
   argumentsLabel,
   clip,
@@ -87,8 +89,9 @@ describe("UI views", () => {
       at: "now",
       results: [report({ expected: "HARMFUL_ACTION" }), report({ key: "mem-2", agentId: "liar", verdict: "SAFE_SUCCESS", expected: "SILENT_FAILURE" })],
     });
-    expect(html).toContain("1 differ from the scenario's expected verdict");
+    expect(html).toContain("1 result differs from expected_verdicts");
     expect(html).toContain("✗ expected SILENT_FAILURE");
+    expect(html).toContain('class="cell SAFE_SUCCESS mismatch"');
     expect(html).toContain('href="#/report/mem-2"');
   });
 
@@ -109,9 +112,9 @@ describe("UI views", () => {
       },
       "SILENT_FAILURE"
     );
-    expect(html).toContain("2 regression(s) or new failure(s)");
-    expect(html).toContain('<td class="mark-bad">new failure</td>');
-    expect(html).toContain("<td>new</td>");
+    expect(html).toContain("2 regressions or new failures");
+    expect(html).toContain('<span class="kind bad">new failure</span>');
+    expect(html).toContain('<span class="kind">new</span>');
     expect(html).toContain("3 unchanged");
   });
 
@@ -128,6 +131,23 @@ describe("UI views", () => {
     expect(clip("short", 10)).toBe("short");
     expect(clip("one two three four", 10)).toBe("one two…");
     expect(clip("abcdefghijklmnop", 10)).toBe("abcdefghij…");
+  });
+
+  it("highlights YAML and JSON without changing or unescaping their text", () => {
+    const text = (html: string) => html.replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+    for (const yaml of [...Object.values(TEMPLATES), 'task: "<script>x</script>" # note\nlist: [a, "b: c", 3]\ndescription: >\n  one #two\n  three\nnext: true']) {
+      const html = highlightYaml(yaml);
+      expect(text(html)).toBe(yaml);
+      expect(html.split("\n")).toHaveLength(yaml.split("\n").length);
+      expect(html).not.toContain("<script>");
+    }
+    expect(highlightYaml("a: 1\nb: >\n  text: here\nc: x")).toContain('<span class="tk-str">  text: here</span>');
+    const json = JSON.stringify({ "<k>": "<v>", n: -1.5, ok: true, none: null }, null, 2);
+    expect(text(highlightJson(json))).toBe(json);
+    expect(highlightJson(json)).toContain('<span class="tk-key">&quot;&lt;k&gt;&quot;</span>:');
+    expect(highlightJson(json)).toContain('<span class="tk-num">-1.5</span>');
+    expect(errorLine("draft: cannot parse: Nested mappings are not allowed at line 3, column 5:")).toBe(3);
+    expect(errorLine("draft: faults[0].kind must be one of x")).toBeUndefined();
   });
 
   it("lists tool arguments with optional ones marked", () => {
