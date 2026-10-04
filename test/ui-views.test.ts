@@ -3,6 +3,7 @@ import { parse as parseYaml } from "yaml";
 import { parseScenario } from "../src/scenarios.js";
 import {
   argumentsLabel,
+  clip,
   comparisonPanel,
   esc,
   filterReports,
@@ -121,6 +122,12 @@ describe("UI views", () => {
     expect(replayPanel({ reproduced: false, trials: [{ trialIndex: 0, replayedCalls: 1, reproduced: false, recordedVerdict: "SAFE_SUCCESS", divergence: { at: "call_2", field: "observed", recorded: 1, replayed: 2 } }] })).toContain(
       "trial 0: diverged at call_2 (observed)"
     );
+  });
+
+  it("clips long reasons at a word boundary", () => {
+    expect(clip("short", 10)).toBe("short");
+    expect(clip("one two three four", 10)).toBe("one two…");
+    expect(clip("abcdefghijklmnop", 10)).toBe("abcdefghij…");
   });
 
   it("lists tool arguments with optional ones marked", () => {

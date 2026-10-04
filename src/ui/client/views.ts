@@ -109,6 +109,13 @@ export const ROUTES = [
   ["catalog", "Catalog"],
 ] as const;
 
+/** Cuts text to `max` characters at a word boundary, with an ellipsis. */
+export function clip(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
+  return `${cut.slice(0, cut.lastIndexOf(" ") > max / 2 ? cut.lastIndexOf(" ") : max)}…`;
+}
+
 export function esc(value: unknown): string {
   return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
@@ -312,7 +319,7 @@ export function runView(run: RunState): string {
           const r = at(s, a);
           if (!r) return "<td></td>";
           const mark = r.expected ? (r.expected === r.verdict ? `<span class="mark-ok" title="matches expected_verdicts">✓</span>` : `<span class="mark-bad" title="expected ${esc(r.expected)}">✗ expected ${esc(r.expected)}</span>`) : "";
-          return `<td><a class="cell" href="${href("report", r.key)}">${badge(r.verdict)} ${mark}<span class="why">${esc(r.reason)}</span></a></td>`;
+          return `<td><a class="cell" href="${href("report", r.key)}" title="${esc(r.reason)}">${badge(r.verdict)} ${mark}<span class="why">${esc(clip(r.reason ?? "", 110))}</span></a></td>`;
         })
         .join("")}</tr>`
     )
@@ -370,7 +377,7 @@ export function reportList(rows: ReportSummary[], f: ReportFilter, selected: Set
 }
 
 export function reportView(key: string, s: ReportSummary | undefined, viewUrl: string, replay?: ReplayResult): string {
-  return `<main class="view">
+  return `<main class="view report-page">
   <div class="toolbar">
     <a href="#/reports">Reports</a> /
     <span class="muted">${s ? `<code>${esc(s.scenarioId)}</code> · agent <code>${esc(s.agentId)}</code> · ${esc(s.file ?? "unsaved run")}` : esc(key)}</span>

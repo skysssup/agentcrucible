@@ -36,7 +36,8 @@ export const UI_CSS = `${BASE_CSS}
   .cell { display:block; text-decoration:none; color:inherit; padding:2px; border-radius:6px; } .cell:hover { background:var(--panel); }
   .cell .why { display:block; color:var(--muted); font-size:12px; max-width:260px; margin:2px auto 0; text-align:left; }
   .mark-ok { color:var(--state); font-weight:700; } .mark-bad { color:var(--bad-fg); font-weight:700; }
-  iframe.report { width:100%; height:calc(100vh - 230px); min-height:480px; border:1px solid var(--border); border-radius:8px; background:var(--bg); }
+  main.view.report-page { height:calc(100vh - 60px); box-sizing:border-box; display:flex; flex-direction:column; padding-bottom:12px; }
+  iframe.report { width:100%; flex:1; min-height:320px; border:1px solid var(--border); border-radius:8px; background:var(--bg); }
   textarea.editor { width:100%; min-height:520px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.5px; line-height:1.45; tab-size:2; resize:vertical; }
   .status { border-radius:8px; padding:10px 12px; margin:8px 0; }
   .status.ok { background:var(--ok); } .status.bad { background:var(--bad); color:var(--bad-fg); } .status.info { background:var(--info); }

@@ -35,7 +35,7 @@ export { createBaseline, compareBaseline, readBaseline, writeBaseline, baselineE
 export type { Baseline, BaselineEntry, BaselineComparison } from "./baseline.js";
 export { computeStats, aggregateVerdict, wilsonLower } from "./stats.js";
 export { resolveFindings, worseVerdict, isCritical, atLeast } from "./verdict.js";
-export { formatReport, formatTrialDetail, printReport, readReportFile, writeHtmlReport, writeJsonReport, writeJUnitReport } from "./report.js";
+export { formatReport, formatTrialDetail, printReport, readReportFile, writeHtmlReport, writeJsonReport, writeJUnitReport, writeRunIndex } from "./report.js";
 export { loadConfig, loadConfigFile, findConfigPath, parseConfigText, CONFIG_FILES } from "./config.js";
 export type { CrucibleConfig } from "./config.js";
 export { VERSION } from "./version.js";

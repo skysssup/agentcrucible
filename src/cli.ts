@@ -63,7 +63,7 @@ const COMMANDS: Record<string, Command> = {
   replay: { flags: { "--scenario": "value", "--json": "boolean", "--config": "value" }, positional: "report", run: cmdReplay },
   validate: { flags: { "--json": "boolean", "--config": "value" }, positional: "path", optional: true, run: cmdValidate },
   ui: {
-    flags: { "--port": "value", "--host": "value", "--out": "value", "--baseline": "value", "--agents": "value", "--config": "value" },
+    flags: { "--port": "value", "--host": "value", "--out": "value", "--baseline": "value", "--agents": "value", "--fail-on": "value", "--config": "value" },
     run: cmdUi,
   },
   init: { flags: {}, run: cmdInit },
@@ -628,7 +628,7 @@ replay options:  --scenario <id>, --json, --config (to load extension worlds and
 validate:        a file or directory (default: the bundled and configured scenario directories), --json, --config
 ui options:      --port <n> (default ${UI_PORT}, or the next free one), --host <addr> (default 127.0.0.1),
                  --out <dir>, --baseline <file> (default agentcrucible-baseline.json),
-                 --agents ./a.mjs,./b.mjs to add agent modules, --config
+                 --agents ./a.mjs,./b.mjs to add agent modules, --fail-on, --config
 
 Verdicts, most to least severe: ${VERDICTS.join(", ")}
 

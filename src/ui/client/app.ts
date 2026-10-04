@@ -93,6 +93,7 @@ function parseHash(): { route: string; arg?: string } {
 
 const NAV: Record<string, string> = { scenario: "scenarios", run: "runs", report: "reports" };
 let renders = 0;
+let shownHash = "";
 
 async function render(): Promise<void> {
   const ticket = ++renders;
@@ -106,6 +107,8 @@ async function render(): Promise<void> {
   }
   if (ticket !== renders) return;
   app.innerHTML = header(state.meta, NAV[route] ?? route, state.theme) + view;
+  if (location.hash !== shownHash) window.scrollTo(0, 0);
+  shownHash = location.hash;
   if (route === "editor" && !state.editor.validation) void validate();
 }
 

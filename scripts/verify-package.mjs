@@ -181,7 +181,7 @@ try {
   writeFileSync(
     join(consumer, "typed.ts"),
     `import {
-  builtinRegistry, compareBaseline, createBaseline, extendRegistry, findScenarios, replayReport, runScenario, VERDICTS,
+  builtinRegistry, compareBaseline, createBaseline, extendRegistry, findScenarios, replayReport, runScenario, VERDICTS, writeRunIndex,
   type AgentAnswer, type Extension, type FaultDefinition, type JsonSchema, type RunReport, type ScriptedAgent, type Verdict, type WorldFactory,
 } from "agentcrucible";
 const agent: ScriptedAgent = async (ctx) => {
@@ -201,7 +201,8 @@ const reproduced: boolean = replayReport(report, registry).reproduced;
 const regressions = compareBaseline(createBaseline([report]), [report]).regressions.length;
 const verdict: Verdict = report.aggregateVerdict;
 const severe: readonly Verdict[] = VERDICTS;
-export { verdict, severe, reproduced, regressions, world };
+const index: string = writeRunIndex([{ report }], "index-out", "Run", "SILENT_FAILURE");
+export { verdict, severe, reproduced, regressions, world, index };
 `
   );
   writeFileSync(

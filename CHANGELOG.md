@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.0.0
+
+1.0 adds a local web UI, a project starter, and scenario validation, makes every saved trace replay, and removes the two 0.x scenario forms that had newer replacements. From this release on, AgentCrucible follows semantic versioning; [docs/stability.md](docs/stability.md) lists what 1.x keeps compatible. Every bundled scenario gives the same verdicts for the bundled agents as in 0.5.0, and reports and baselines written by 0.5.0 load, replay, and compare unchanged.
+
+### New
+
+- **`agentcrucible ui`** serves a local web app on 127.0.0.1 for the project in the current directory: an overview; a searchable scenario list with tag and world filters; scenario details; runs of any scenarios against any agents, shown as a matrix that marks each result that differs from `expected_verdicts`; a library of saved and unsaved reports; each report's timeline with replay, download, and save; baseline comparison and saving; a scenario editor that validates as you type, runs drafts, and saves them to the first `scenarioDirs` entry; and a catalog of agents, worlds, tools, record fields, and fault kinds. It loads nothing from the network. API requests need the session token from the page, Host headers that name another site are refused, and report pages render in a sandboxed frame. See [docs/ui.md](docs/ui.md).
+- **`agentcrucible init`** writes a config file, a starter scenario, and a starter agent module that pass `validate`, `run`, and `check` as written. It leaves existing files alone.
+- **`agentcrucible validate [path]`** checks scenario files without running them and reports every file with an error and every duplicate id, with `--json` for editors and CI. Without a path it checks the bundled and configured scenario directories.
+- **Run index.** `run` writes an `index.html` that links every report page of the run with its verdict, deciding rule, and reason; with `--baseline`, each row is labeled as a regression, new failure, improvement, rule change, new entry, or unchanged. `demo --out` writes one too. The library exports `writeRunIndex`.
+- **HTML timeline.** The header gives the commands that reproduce the run (`run` with the same seed and trial count, and `replay` of the JSON report) with copy buttons. A search box (focus it with `/`) filters calls by tool, arguments, or responses, each call can show the whole world state after it, and the page follows the system's light or dark setting.
+- **Documentation:** [docs/cli.md](docs/cli.md) (every command, option, exit status, and config key), [docs/ui.md](docs/ui.md), and [docs/stability.md](docs/stability.md). The README is shorter and links to them.
+
+### Fixed
+
+- **Every saved trace replays.** Tool arguments and results now make a JSON round trip, as they would over a real tool protocol, so the recorded call is exactly what the world received. Before, a trace whose arguments held `undefined`, `NaN`, or similar values could fail to replay. Arguments that are not a JSON object are recorded with `argsError` and replay the same way. A new seeded fuzz test, which runs random agents against every bundled scenario and checks evidence, verdicts, reports, replay, and baselines, found this.
+- A yes/no answer check no longer reads an email address or URL that contains the keyword as a statement: "Refund sent to email@example.com." says nothing about "email".
+- An answer that only starts with `{` or `[` is no longer read as broken structured output; only an answer that is entirely one JSON object or array counts.
+- Loading the same agent module twice, for example from the config file and from `--agents`, reuses it instead of failing.
+
+### Compatibility
+
+| 0.5.0 | 1.0.0 |
+|---|---|
+| `expected_naive_verdict: X` | `expected_verdicts: { naive-retry: X }`. The old key is an error that gives the new form. |
+| `expect.answer: { amount_cents: N }` | `expect.answer: [{ type: amount, cents: N }]`. The old form is an error that gives the new form. |
+| Tool arguments were copied as they were | They pass through JSON: `undefined` and functions are dropped, `NaN` and `Infinity` become `null`, and a `Date` becomes its ISO string |
+| A world result or fault observation that JSON cannot carry was copied | It is converted as `JSON.stringify` would; one that cannot be converted at all stops the run with an error naming the tool or fault |
+
 ## 0.5.0
 
 This release adds multi-step workflows across several worlds, typed answer checks, agents and extensions loaded from modules, saved-trace inspection and replay, an interactive HTML timeline, and baselines for CI. Verdicts for the scenarios and agents that existed in 0.4.0 are unchanged. The library, world, and report interfaces changed; see [Compatibility](#compatibility) for what to update.

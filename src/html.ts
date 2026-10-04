@@ -135,7 +135,10 @@ export function renderReportHtml(report: RunReport, opts: ReportHtmlOptions = {}
     const target = location.hash ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null;
     const trial = target ? target.closest(".trial") : null;
     show(trial ? trial.dataset.trial : document.querySelector(".trial.worst")?.dataset.trial);
-    if (target && target.matches("li.call")) { target.querySelector("details").open = true; target.scrollIntoView({ block: "center" }); }
+    if (target && target.matches("li.call")) {
+      target.querySelector("details").open = true;
+      window.scrollTo(0, target.getBoundingClientRect().top + window.scrollY - window.innerHeight / 4);
+    }
   };
   const search = document.getElementById("call-search");
   search.addEventListener("input", () => {

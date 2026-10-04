@@ -12,7 +12,7 @@ agentcrucible inspect reports/workflows%2Frefund-notify-resolve.report.json
 ```
 
 ```text
-workflows/refund-notify-resolve  agent workflow-reconcile · seed seed-workflows/refund-notify-resolve · trial 0 of 2 · AgentCrucible 0.5.0
+workflows/refund-notify-resolve  agent workflow-reconcile · seed seed-workflows/refund-notify-resolve · trial 0 of 2 · AgentCrucible 1.0.0
   call_1 create_refund#1  committed  agent saw: error ETIMEDOUT: connection timed out after commit  [fault: timeout_after_commit]
     state: + refund re_1_4471 order_id="4471" amount_cents=8400 status="succeeded" (no idempotency key)
   call_4 void_refund#1  committed  agent saw: ok {"refund_id":"re_2_4471","status":"voided","deduplicated":false}
@@ -50,7 +50,7 @@ agentcrucible replay reports/workflows%2Frefund-notify-resolve.report.json
 ```
 
 ```text
-replay workflows/refund-notify-resolve (agent workflow-reconcile, seed seed-workflows/refund-notify-resolve, 2 trial(s), recorded by AgentCrucible 0.5.0)
+replay workflows/refund-notify-resolve (agent workflow-reconcile, seed seed-workflows/refund-notify-resolve, 2 trial(s), recorded by AgentCrucible 1.0.0)
   trial 0: 6 call(s) replayed identically; verdict DEGRADED as recorded
   trial 1: 6 call(s) replayed identically; verdict DEGRADED as recorded
 Reproduced: every call, state, and verdict matches the report.
