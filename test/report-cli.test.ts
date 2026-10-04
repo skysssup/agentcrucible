@@ -114,7 +114,7 @@ describe("HTML report", () => {
     expect(html).toContain('id="call-search"');
     expect(html).toContain('id="filter-faults"');
     expect(html).toContain("World state after this call");
-    expect(html).toContain("prefers-color-scheme: dark");
+    expect(html).toContain("color-scheme:light dark");
     expect(html).toContain('<html lang="en">');
     expect(renderReportHtml(r, { theme: "dark" })).toContain('<html lang="en" data-theme="dark">');
     expect(renderReportHtml({ ...r, seed: "it's here" })).toContain("--seed &#39;it&#39;\\&#39;&#39;s here&#39;");

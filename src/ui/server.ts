@@ -6,8 +6,9 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import { compareBaseline, createBaseline, readBaseline, writeBaseline } from "../baseline.js";
+import { DEMO_SCENARIO, DEMO_SEED } from "../demo.js";
 import { describeFault, expectParts, worstTrial } from "../describe.js";
-import { renderReportHtml } from "../html.js";
+import { logo, renderReportHtml } from "../html.js";
 import type { Registry } from "../registry.js";
 import { replayReport } from "../replay.js";
 import { readReportFile, writeHtmlReport, writeJsonReport, writeJUnitReport } from "../report.js";
@@ -15,7 +16,6 @@ import { parseTrials, runMatrix } from "../runner.js";
 import { loadAllScenarios, parseScenario } from "../scenarios.js";
 import { VERDICTS, type RunReport, type Scenario, type Verdict } from "../types.js";
 import { VERSION } from "../version.js";
-import { logo } from "./client/icons.js";
 import { UI_CSS } from "./styles.js";
 
 export interface UiOptions {
@@ -99,40 +99,10 @@ export async function startUi(opts: UiOptions): Promise<UiServer> {
   };
 
   const api: Record<string, (req: IncomingMessage, url: URL) => Promise<unknown> | unknown> = {
-    "GET /api/meta": () => ({
-      version: VERSION,
-      cwd: process.cwd(),
-      outDir: opts.outDir,
-      scenarioRoots: opts.scenarioRoots,
-      scenarioDir: opts.scenarioDir ?? null,
-      baselinePath: opts.baselinePath,
-      failOn: opts.failOn,
-      verdicts: VERDICTS,
-      agents: [...opts.registry.agents].map(([id, e]) => ({ id, description: e.value.description, source: e.source })),
-      worlds: [...opts.registry.worlds].map(([name, e]) => {
-        const world = e.value();
-        return {
-          name,
-          description: world.description,
-          source: e.source,
-          tools: world.tools.map((t) => ({ name: t.name, description: t.description, mutating: t.mutating, inputSchema: t.inputSchema, outputSchema: t.outputSchema ?? null })),
-          records: world.recordFields,
-        };
-      }),
-      faults: [...opts.registry.faults].map(([kind, e]) => ({ kind, stage: e.value.stage, description: e.value.description, params: Object.keys(e.value.params?.properties ?? {}), source: e.source })),
-    }),
+    "GET /api/meta": () => meta(opts),
     "GET /api/scenarios": () => scenarios().map((s) => scenarioSummary(s, opts.scenarioRoots)),
-    "GET /api/scenario": (_req, url) => {
-      const scenario = findScenario(param(url, "id"));
-      return {
-        summary: scenarioSummary(scenario, opts.scenarioRoots),
-        scenario,
-        expect: expectParts({ scenario } as RunReport),
-        faults: scenario.faults.map(describeFault),
-        text: scenario.source ? readFileSync(scenario.source, "utf8") : "",
-      };
-    },
-    "POST /api/validate": async (req) => {
+    "GET /api/scenario": (_req, url) => scenarioDetail(findScenario(param(url, "id")), opts.scenarioRoots),
+    "POST /api/validate": async (req): Promise<Validation> => {
       const text = stringField((await body(req)).text, "text");
       try {
         const scenario = parseDraft(text, opts.registry);
@@ -261,6 +231,14 @@ export async function startUi(opts: UiOptions): Promise<UiServer> {
     if (req.method === "GET" && url.pathname === "/app.css") return asset(res, "text/css", UI_CSS);
     if (req.method === "GET" && url.pathname === "/theme.js") return asset(res, "text/javascript", THEME_JS);
     if (req.method === "GET" && url.pathname === "/favicon.svg") return asset(res, "image/svg+xml", logo(32).replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" '));
+    if (req.method === "GET" && url.pathname.startsWith("/fonts/")) {
+      const { FONTS } = await import("./fonts.js");
+      const name = url.pathname.slice("/fonts/".length);
+      if (!Object.hasOwn(FONTS, name)) throw new HttpError(404, `no font ${name}`);
+      res.writeHead(200, { "Content-Type": "font/woff2", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
+      res.end(Buffer.from(FONTS[name], "base64"));
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/app.js") {
       const bundle = clientBundle();
       if (!bundle) throw new HttpError(503, "the UI bundle is missing; run npm run build");
@@ -303,11 +281,57 @@ export async function startUi(opts: UiOptions): Promise<UiServer> {
   };
 }
 
+/** The project, its directories, and every agent, world, and fault kind the registry holds (GET /api/meta). */
+function meta(opts: UiOptions) {
+  return {
+    version: VERSION,
+    cwd: process.cwd(),
+    outDir: opts.outDir,
+    scenarioRoots: opts.scenarioRoots,
+    scenarioDir: opts.scenarioDir ?? null,
+    baselinePath: opts.baselinePath,
+    failOn: opts.failOn,
+    verdicts: VERDICTS,
+    /** The scenario and seed of `agentcrucible demo`, which the guided demo runs. */
+    demo: { scenario: DEMO_SCENARIO, seed: DEMO_SEED },
+    agents: [...opts.registry.agents].map(([id, e]) => ({ id, description: e.value.description, source: e.source })),
+    worlds: [...opts.registry.worlds].map(([name, e]) => {
+      const world = e.value();
+      return {
+        name,
+        description: world.description,
+        source: e.source,
+        tools: world.tools.map((t) => ({ name: t.name, description: t.description, mutating: t.mutating, inputSchema: t.inputSchema, outputSchema: t.outputSchema ?? null })),
+        records: world.recordFields,
+      };
+    }),
+    faults: [...opts.registry.faults].map(([kind, e]) => ({ kind, stage: e.value.stage, description: e.value.description, params: Object.keys(e.value.params?.properties ?? {}), source: e.source })),
+  };
+}
+
+/** One scenario in full, with its source text (GET /api/scenario). */
+function scenarioDetail(scenario: Scenario, roots: string[]) {
+  return {
+    summary: scenarioSummary(scenario, roots),
+    scenario,
+    expect: expectParts({ scenario } as RunReport),
+    faults: scenario.faults.map(describeFault),
+    text: scenario.source ? readFileSync(scenario.source, "utf8") : "",
+  };
+}
+
+export type Meta = ReturnType<typeof meta>;
+export type ScenarioSummary = ReturnType<typeof scenarioSummary>;
+export type ScenarioDetail = ReturnType<typeof scenarioDetail>;
+
+/** POST /api/validate: the draft's summary and expectations, or why it is not a valid scenario. */
+export type Validation = { ok: true; summary: ScenarioSummary; expect: string[] } | { ok: false; error: string };
+
 /** A report in the API's lists: a summary, or the error that kept a saved file from loading. */
-type ReportSummary = { key: string; file?: string; error?: string; expected?: Verdict | null } & Partial<ReturnType<typeof reportSummary>>;
+export type ReportSummary = { key: string; file?: string; error?: string; expected?: Verdict | null } & Partial<ReturnType<typeof reportSummary>>;
 
 /** One POST /api/run: what was asked for and a summary of each report it produced. */
-interface RunRecord {
+export interface RunRecord {
   runId: string;
   startedAt: string;
   scenarios: string[];
@@ -483,6 +507,8 @@ function indexHtml(token: string): string {
 <title>AgentCrucible</title>
 <meta name="color-scheme" content="light dark"/>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
+<link rel="preload" href="/fonts/geist.woff2" as="font" type="font/woff2" crossorigin/>
+<link rel="preload" href="/fonts/geist-mono.woff2" as="font" type="font/woff2" crossorigin/>
 <script src="/theme.js"></script>
 <link rel="stylesheet" href="/app.css"/>
 </head>

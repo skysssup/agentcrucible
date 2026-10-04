@@ -79,10 +79,13 @@ describe("UI server security", () => {
     expect(html).not.toMatch(/https?:\/\/(?!127)/);
     expect(res.headers.get("content-security-policy")).toContain("default-src 'self'");
     expect(res.headers.get("content-security-policy")).toContain("object-src 'none'");
-    for (const [path, type] of [["/app.css", "text/css"], ["/theme.js", "text/javascript"], ["/favicon.svg", "image/svg+xml"]]) {
+    for (const [path, type] of [["/app.css", "text/css"], ["/theme.js", "text/javascript"], ["/favicon.svg", "image/svg+xml"], ["/fonts/geist.woff2", "font/woff2"], ["/fonts/geist-mono.woff2", "font/woff2"]]) {
       const asset = await fetch(url + path);
       expect([asset.status, asset.headers.get("content-type")?.split(";")[0]]).toEqual([200, type]);
     }
+    const font = new Uint8Array(await (await fetch(url + "/fonts/geist.woff2")).arrayBuffer());
+    expect(new TextDecoder().decode(font.slice(0, 4))).toBe("wOF2");
+    for (const path of ["/fonts/nope.woff2", "/fonts/constructor", "/fonts/__proto__"]) expect((await fetch(url + path)).status).toBe(404);
   });
 
   it("refuses API calls without the session token", async () => {
@@ -162,6 +165,7 @@ describe("UI API", () => {
     expect(json.worlds.find((w: { name: string }) => w.name === "payments").tools.map((t: { name: string }) => t.name)).toContain("create_refund");
     expect(json.faults.map((f: { kind: string }) => f.kind)).toContain("timeout_after_commit");
     expect(json.scenarioDir).toBe(join(dir, "scenarios"));
+    expect(json.demo).toEqual({ scenario: "payments/timeout-after-commit", seed: "demo" });
   });
 
   it("lists scenarios and shows one with its source text", async () => {

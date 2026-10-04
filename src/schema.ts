@@ -86,12 +86,6 @@ export function isRegExp(source: string): boolean {
   }
 }
 
-/** Throws when the schema is not usable. */
-export function assertSchema(schema: unknown, path = "schema"): asserts schema is JsonSchema {
-  const problems = schemaProblems(schema, path);
-  if (problems.length) throw new Error(problems.join("; "));
-}
-
 /**
  * Checks a value against a schema and returns every violation as "<JSON path>: <problem>".
  * Validation stops descending after 20 violations.

@@ -1,5 +1,5 @@
+import { esc } from "../../html.js";
 import { icon, type IconName } from "./icons.js";
-import { esc } from "./views.js";
 
 export interface PaletteItem {
   group: string;

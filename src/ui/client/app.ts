@@ -2,28 +2,35 @@
  * The browser side of `agentcrucible ui`: a hash router over the views in views.ts and the JSON
  * API in server.ts. Every request carries the session token the server put in the page.
  */
+import type { Baseline } from "../../baseline.js";
+import { esc } from "../../html.js";
 import type { RunReport } from "../../types.js";
+import type { RunRecord } from "../server.js";
 import { errorLine, gutterLines, highlightYaml } from "./editor.js";
 import { icon } from "./icons.js";
 import { closePalette, openPalette, paletteOpen, type PaletteItem } from "./palette.js";
 import {
+  agentsView,
   baselineView,
   catalogView,
-  DEMO_SCENARIO,
+  crumbs,
   demoView,
   draftResults,
   editorView,
   errorView,
-  esc,
   filterScenarios,
   href,
   overviewView,
   plural,
+  projectName,
   reportActions,
   reportList,
   reportsView,
   reportView,
   ROUTES,
+  runCommands,
+  runCsv,
+  runMarkdown,
   runsView,
   runView,
   scenarioList,
@@ -31,39 +38,28 @@ import {
   scenarioView,
   selectionNote,
   shell,
+  shortcutsView,
   TEMPLATES,
+  uniqueResults,
   validationPanel,
   type Comparison,
   type DemoState,
   type EditorState,
   type Meta,
-  type ReplayResult,
+  type ReplayView,
   type ReportSummary,
   type RunState,
   type ScenarioDetail,
   type ScenarioSummary,
   type Theme,
+  type Validation,
 } from "./views.js";
-
-/** A run as the server keeps it (POST /api/run and GET /api/runs). */
-interface ServerRun {
-  runId: string;
-  startedAt: string;
-  scenarios: string[];
-  agents: string[] | null;
-  trials: number;
-  seed: string | null;
-  draft: boolean;
-  results: ReportSummary[];
-}
 
 const token = document.querySelector<HTMLMetaElement>('meta[name="agentcrucible-token"]')?.content ?? "";
 const app = document.getElementById("app")!;
 const DRAFT_KEY = "agentcrucible-draft";
 const THEME_KEY = "agentcrucible-theme";
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
-/** The seed `agentcrucible demo` uses, so the guided demo shows the same run. */
-const DEMO_SEED = "demo";
 
 const state = {
   meta: undefined as unknown as Meta,
@@ -77,7 +73,7 @@ const state = {
   reportFilter: { q: "", verdict: "" },
   selectedReports: new Set<string>(),
   comparison: undefined as Comparison | undefined,
-  replays: new Map<string, ReplayResult>(),
+  replays: new Map<string, ReplayView>(),
   /** Full reports from this session; their keys never change, so they are fetched once. */
   reports: new Map<string, RunReport>(),
   detail: undefined as ScenarioDetail | undefined,
@@ -117,6 +113,7 @@ function parseHash(): { route: string; arg?: string } {
   return { route, ...(rest.length && rest.join("/") ? { arg: decodeURIComponent(rest.join("/")) } : {}) };
 }
 
+/** The sidebar entry a detail page belongs to. */
 const NAV: Record<string, string> = { scenario: "scenarios", run: "runs", report: "reports" };
 let renders = 0;
 let shownHash = "";
@@ -125,12 +122,17 @@ function view(): HTMLElement {
   return document.getElementById("view")!;
 }
 
+/** The sheet that scrolls the page content. */
+function scroller(): HTMLElement {
+  return document.getElementById("main")!;
+}
+
 async function render(): Promise<void> {
   const ticket = ++renders;
   const { route, arg } = parseHash();
   const nav = NAV[route] ?? route;
   setActiveNav(nav);
-  document.querySelector(".shell")?.classList.remove("menu-open");
+  closeMenu();
   const bar = setTimeout(() => document.getElementById("progress")?.classList.add("on"), 120);
   let html: string;
   try {
@@ -143,8 +145,13 @@ async function render(): Promise<void> {
   if (ticket !== renders) return;
   document.getElementById("progress")?.classList.remove("on");
   view().innerHTML = html;
-  document.title = `${ROUTES.find((r) => r.route === nav)?.label ?? "AgentCrucible"} · AgentCrucible`;
-  if (location.hash !== shownHash) window.scrollTo(0, 0);
+  const trail = crumbsFor(route, arg);
+  document.getElementById("crumbs")!.innerHTML = crumbs(trail);
+  document.title = `${trail[trail.length - 1][0]} · AgentCrucible`;
+  if (location.hash !== shownHash) {
+    scroller().scrollTo(0, 0);
+    if (!paletteOpen()) view().focus({ preventScroll: true });
+  }
   shownHash = location.hash;
   updateCounts();
   if (route === "editor") {
@@ -153,21 +160,38 @@ async function render(): Promise<void> {
   }
 }
 
+/** Project, page, and the item a detail page shows. */
+function crumbsFor(route: string, arg?: string): Array<[string, string?]> {
+  const page = ROUTES.find((r) => r.route === (NAV[route] ?? route));
+  const project: [string, string] = [projectName(state.meta), "#/"];
+  if (!page) return [project, ["Not found"]];
+  if (!arg) return [project, [page.label]];
+  const item =
+    route === "run"
+      ? (state.runs?.find((r) => r.runId === arg)?.label ?? arg)
+      : route === "report"
+        ? (findSummary(arg)?.scenarioId ?? state.reports.get(arg)?.scenarioId ?? arg)
+        : arg;
+  return [project, [page.label, `#/${page.route}`], [item]];
+}
+
 async function viewFor(route: string, arg?: string): Promise<string> {
   const meta = state.meta;
   switch (route) {
     case "":
-      await Promise.all([ensureScenarios(), refreshReports(), loadRuns()]);
-      return overviewView(meta, state.scenarios ?? [], [...state.memory, ...state.saved], state.runs ?? []);
+      await Promise.all([ensureScenarios(), refreshReports(), loadRuns(true)]);
+      return overviewView(meta, state.scenarios ?? [], [...state.memory, ...state.saved]);
     case "demo":
       await Promise.all([ensureScenarios(), state.demo.status === "idle" ? restoreDemo() : undefined]);
-      return demoView(meta, state.scenarios?.find((s) => s.id === DEMO_SCENARIO), state.demo);
+      return demoView(meta, state.scenarios?.find((s) => s.id === meta.demo.scenario), state.demo);
     case "scenarios":
       await ensureScenarios();
       return scenariosView(meta, state.scenarios ?? [], state.scenarioFilter, state.selectedScenarios, state.scenarioError);
-    case "scenario":
-      state.detail = await api<ScenarioDetail>(`/api/scenario?id=${encodeURIComponent(arg ?? "")}`);
-      return scenarioView(meta, state.detail);
+    case "scenario": {
+      const [detail] = await Promise.all([api<ScenarioDetail>(`/api/scenario?id=${encodeURIComponent(arg ?? "")}`), refreshReports()]);
+      state.detail = detail;
+      return scenarioView(meta, detail, uniqueResults([...state.memory, ...state.saved]).filter((r) => r.scenarioId === detail.summary.id));
+    }
     case "runs":
       await loadRuns(true);
       return runsView(state.runs ?? []);
@@ -189,8 +213,11 @@ async function viewFor(route: string, arg?: string): Promise<string> {
         replay: state.replays.get(key),
       });
     }
+    case "agents":
+      await refreshReports();
+      return agentsView(meta, [...state.memory, ...state.saved]);
     case "baseline":
-      return baselineView(meta, await api("/api/baseline"), state.comparison);
+      return baselineView(meta, await api<{ path: string; baseline: Baseline | null; error?: string }>("/api/baseline"), state.comparison);
     case "editor":
       if (arg && arg !== state.editorSource) {
         const detail = await api<ScenarioDetail>(`/api/scenario?id=${encodeURIComponent(arg)}`);
@@ -199,7 +226,7 @@ async function viewFor(route: string, arg?: string): Promise<string> {
         state.draftAgentsTouched = false;
         localStorage.setItem(DRAFT_KEY, detail.text);
       }
-      return editorView(meta, state.editor);
+      return editorView(meta, state.editor, isMac);
     case "catalog":
       return catalogView(meta);
     default:
@@ -227,7 +254,7 @@ async function refreshReports(): Promise<void> {
 
 async function loadRuns(fresh = false): Promise<void> {
   if (state.runs && !fresh) return;
-  state.runs = (await api<ServerRun[]>("/api/runs")).map(toRunState);
+  state.runs = (await api<RunRecord[]>("/api/runs")).map(toRunState);
 }
 
 async function loadReport(key: string): Promise<RunReport> {
@@ -238,21 +265,23 @@ async function loadReport(key: string): Promise<RunReport> {
   return report;
 }
 
-function toRunState(r: ServerRun): RunState {
+function toRunState(r: RunRecord): RunState {
   const agents = r.agents ? (r.agents.length <= 3 ? r.agents.join(", ") : plural(r.agents.length, "agent")) : "expected agents";
   return {
-    runId: r.runId,
+    ...r,
     label: r.draft ? `Draft ${r.scenarios[0]}` : r.scenarios.length === 1 ? r.scenarios[0] : plural(r.scenarios.length, "scenario"),
     at: new Date(r.startedAt).toLocaleString(),
-    startedAt: r.startedAt,
     detail: [agents, plural(r.trials, "trial"), ...(r.seed ? [`seed ${r.seed}`] : [])].join(" · "),
-    results: r.results,
-    demo: !r.draft && r.agents === null && r.seed === DEMO_SEED && r.scenarios.length === 1 && r.scenarios[0] === DEMO_SCENARIO,
+    demo: !r.draft && r.agents === null && r.seed === state.meta.demo.seed && r.scenarios.length === 1 && r.scenarios[0] === state.meta.demo.scenario,
   };
 }
 
 function findSummary(key: string): ReportSummary | undefined {
   return [...(state.runs ?? []).flatMap((r) => r.results), ...state.memory, ...state.saved].find((r) => r.key === key);
+}
+
+function findRun(el: HTMLElement): RunState | undefined {
+  return state.runs?.find((r) => r.runId === el.dataset.run);
 }
 
 function setActiveNav(route: string): void {
@@ -265,14 +294,30 @@ function setActiveNav(route: string): void {
 }
 
 function updateCounts(): void {
-  const counts: Record<string, number | undefined> = { scenarios: state.scenarios?.length, runs: state.runs?.length || undefined };
+  const counts: Record<string, number | undefined> = { scenarios: state.scenarios?.length, runs: state.runs?.length || undefined, reports: state.saved.length || undefined };
   for (const el of document.querySelectorAll<HTMLElement>(".sb-count")) el.textContent = counts[el.dataset.count ?? ""]?.toString() ?? "";
 }
 
 function applyTheme(): void {
   if (state.theme === "system") delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = state.theme;
-  for (const b of document.querySelectorAll<HTMLElement>('.theme-switch [data-theme]')) b.setAttribute("aria-checked", String(b.dataset.theme === state.theme));
+  for (const b of document.querySelectorAll<HTMLElement>(".theme-switch [data-theme]")) b.setAttribute("aria-checked", String(b.dataset.theme === state.theme));
+}
+
+function setTheme(theme: Theme): void {
+  state.theme = theme;
+  localStorage.setItem(THEME_KEY, theme);
+  applyTheme();
+}
+
+/** Switches to the opposite of the theme on screen. */
+function flipTheme(): void {
+  const dark = state.theme === "dark" || (state.theme === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+  setTheme(dark ? "light" : "dark");
+}
+
+function closeMenu(): void {
+  document.querySelector(".app")?.classList.remove("menu-open");
 }
 
 /** Shows a toast; it closes itself after a few seconds unless `persist` is set. Returns a function that closes it. */
@@ -318,23 +363,42 @@ function progress(text: string): () => void {
   };
 }
 
-/** A modal confirmation; resolves true when the user confirms. */
-function confirmDialog(o: { title: string; body: string; confirm: string; danger?: boolean }): Promise<boolean> {
+/** A modal dialog; resolves with the value of the button that closed it. */
+function dialog(className: string, html: string, focus: string): Promise<string> {
   return new Promise((resolve) => {
-    const dialog = document.createElement("dialog");
-    dialog.className = "dialog";
-    dialog.innerHTML = `<form method="dialog"><div class="dialog-body"><span class="dialog-icon${o.danger ? " danger" : ""}">${icon(o.danger ? "alert" : "help", 18)}</span><div><h2>${esc(o.title)}</h2><p>${o.body}</p></div></div><div class="dialog-actions"><button type="submit" class="btn btn-secondary" value="cancel">Cancel</button><button type="submit" class="btn ${o.danger ? "btn-danger" : "btn-primary"}" value="ok">${esc(o.confirm)}</button></div></form>`;
-    document.body.append(dialog);
-    dialog.addEventListener("close", () => {
-      resolve(dialog.returnValue === "ok");
-      dialog.remove();
+    const el = document.createElement("dialog");
+    el.className = className;
+    el.innerHTML = html;
+    document.body.append(el);
+    el.addEventListener("close", () => {
+      resolve(el.returnValue);
+      el.remove();
     });
-    dialog.addEventListener("click", (e) => {
-      if (e.target === dialog) dialog.close("cancel");
+    el.addEventListener("click", (e) => {
+      if (e.target === el) el.close("cancel");
     });
-    dialog.showModal();
-    dialog.querySelector<HTMLButtonElement>('button[value="ok"]')!.focus();
+    el.showModal();
+    el.querySelector<HTMLElement>(focus)?.focus();
   });
+}
+
+/** A modal confirmation; resolves true when the user confirms. */
+async function confirmDialog(o: { title: string; body: string; confirm: string; danger?: boolean }): Promise<boolean> {
+  const value = await dialog(
+    "dialog",
+    `<form method="dialog"><div class="dialog-body"><span class="dialog-icon${o.danger ? " danger" : ""}">${icon(o.danger ? "alert" : "help", 18)}</span><div><h2>${esc(o.title)}</h2><p>${o.body}</p></div></div><div class="dialog-actions"><button type="submit" class="btn btn-secondary" value="cancel">Cancel</button><button type="submit" class="btn ${o.danger ? "btn-danger" : "btn-primary"}" value="ok">${esc(o.confirm)}</button></div></form>`,
+    'button[value="ok"]'
+  );
+  return value === "ok";
+}
+
+function showShortcuts(): void {
+  if (document.querySelector("dialog.dialog-shortcuts")) return;
+  void dialog(
+    "dialog dialog-shortcuts",
+    `<form method="dialog"><div class="dialog-head"><h2>${icon("keyboard", 17)}Keyboard shortcuts</h2><button type="submit" class="icon-btn" value="close" aria-label="Close">${icon("x", 15)}</button></div>${shortcutsView(isMac)}</form>`,
+    'button[value="close"]'
+  );
 }
 
 function download(name: string, text: string, type: string): void {
@@ -348,11 +412,11 @@ function download(name: string, text: string, type: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-/** Disables a control while its request runs and shows `label` and a spinner on it. */
-async function busy<T>(el: HTMLElement, label: string, work: () => Promise<T>): Promise<T | undefined> {
-  const button = (el.matches("button") ? el : el.querySelector("button[type=submit]")) as HTMLButtonElement | null;
+/** Disables a control, if any, while its request runs and shows `label` and a spinner on it. Errors become toasts. */
+async function busy<T>(el: HTMLElement | undefined, label: string, work: () => Promise<T>): Promise<T | undefined> {
+  const button = (el?.matches("button") ? el : el?.querySelector("button[type=submit]")) as HTMLButtonElement | null | undefined;
   const before = button?.innerHTML;
-  el.classList.add("busy");
+  el?.classList.add("busy");
   if (button) {
     button.disabled = true;
     button.innerHTML = `<span class="spinner"></span><span>${esc(label)}</span>`;
@@ -363,7 +427,7 @@ async function busy<T>(el: HTMLElement, label: string, work: () => Promise<T>): 
     toast((err as Error).message, "bad");
     return undefined;
   } finally {
-    el.classList.remove("busy");
+    el?.classList.remove("busy");
     if (button?.isConnected) {
       button.disabled = false;
       button.innerHTML = before ?? "";
@@ -372,10 +436,14 @@ async function busy<T>(el: HTMLElement, label: string, work: () => Promise<T>): 
 }
 
 async function startRun(request: { scenarioIds?: string[]; text?: string }, agents: string[], trials: number, seed: string | undefined): Promise<RunState> {
-  const res = await api<ServerRun>("/api/run", { ...request, agents, trials, ...(seed ? { seed } : {}) });
+  const res = await api<RunRecord>("/api/run", { ...request, agents, trials, ...(seed ? { seed } : {}) });
   await loadRuns(true);
   updateCounts();
   return toRunState(res);
+}
+
+function runLabel(scenarios: number, agentRuns: number, trials: number): string {
+  return `Running ${plural(scenarios, "scenario")}: ${plural(agentRuns, "agent run")} × ${plural(trials, "trial")}`;
 }
 
 async function runFromForm(form: HTMLFormElement): Promise<void> {
@@ -385,9 +453,8 @@ async function runFromForm(form: HTMLFormElement): Promise<void> {
   const seed = String(data.get("seed") ?? "").trim() || undefined;
   const action = form.dataset.action;
   const expected = (verdicts: Record<string, unknown> | undefined) => agents.length || Object.keys(verdicts ?? {}).length;
-  const label = (scenarios: number, agentRuns: number) => `Running ${plural(scenarios, "scenario")}: ${plural(agentRuns, "agent run")} × ${plural(trials, "trial")}`;
   if (action === "run-draft") {
-    const done = progress(label(1, expected(state.editor.validation?.summary?.expectedVerdicts)));
+    const done = progress(runLabel(1, expected(state.editor.validation?.ok ? state.editor.validation.summary.expectedVerdicts : undefined), trials));
     const run = await busy(form, "Running…", () => startRun({ text: state.editor.text }, agents, trials, seed)).finally(done);
     if (!run) return;
     state.editor.run = run;
@@ -397,13 +464,26 @@ async function runFromForm(form: HTMLFormElement): Promise<void> {
   }
   const ids = action === "run-scenario" ? [state.detail?.summary.id ?? ""] : [...state.selectedScenarios];
   if (ids.length === 0) return void toast("Select at least one scenario first.", "bad");
-  const done = progress(label(ids.length, ids.reduce((n, id) => n + expected(state.scenarios?.find((s) => s.id === id)?.expectedVerdicts), 0)));
+  const done = progress(runLabel(ids.length, ids.reduce((n, id) => n + expected(state.scenarios?.find((s) => s.id === id)?.expectedVerdicts), 0), trials));
   const run = await busy(form, "Running…", () => startRun({ scenarioIds: ids }, agents, trials, seed)).finally(done);
   if (run) location.hash = href("run", run.runId);
 }
 
+/** Runs the same scenarios, agents, trials, and seed as `run` again, and opens the new run. */
+async function rerun(run: RunState | undefined, el?: HTMLElement): Promise<void> {
+  if (!run?.scenarios || run.draft) return;
+  const done = progress(runLabel(run.scenarios.length, run.results.length, run.trials ?? 1));
+  const again = await busy(el, "Running…", () => startRun({ scenarioIds: run.scenarios }, run.agents ?? [], run.trials ?? 1, run.seed ?? undefined)).finally(done);
+  if (again) location.hash = href("run", again.runId);
+}
+
+function showAgentReports(agent: string): void {
+  state.reportFilter = { q: agent, verdict: "" };
+  location.hash = "#/reports";
+}
+
 function selectedKeys(el: HTMLElement): string[] {
-  const run = state.runs?.find((r) => r.runId === el.dataset.run);
+  const run = findRun(el);
   return run ? run.results.map((r) => r.key) : [...state.selectedReports];
 }
 
@@ -422,7 +502,7 @@ async function runDemo(): Promise<void> {
   else void render();
   const started = Date.now();
   try {
-    const run = await startRun({ scenarioIds: [DEMO_SCENARIO] }, [], 1, DEMO_SEED);
+    const run = await startRun({ scenarioIds: [state.meta.demo.scenario] }, [], 1, state.meta.demo.seed);
     const reports = await Promise.all(run.results.map((r) => loadReport(r.key)));
     await new Promise((done) => setTimeout(done, Math.max(0, 450 - (Date.now() - started))));
     state.demo = { status: "done", results: run.results, reports: Object.fromEntries(reports.map((r) => [r.agentId, r])) };
@@ -432,50 +512,79 @@ async function runDemo(): Promise<void> {
   if (parseHash().route === "demo") void render();
 }
 
+/** Scrolls to the run form on pages that have one, and goes to the scenario list from the others. */
+function newRun(): void {
+  const form = view().querySelector<HTMLFormElement>("form.run-card");
+  if (!form || form.dataset.action === "run-draft") {
+    location.hash = "#/scenarios";
+    return;
+  }
+  form.scrollIntoView({ behavior: "smooth", block: "center" });
+  form.classList.remove("flash");
+  void form.offsetWidth;
+  form.classList.add("flash");
+  form.querySelector<HTMLButtonElement>("button[type=submit]")?.focus({ preventScroll: true });
+}
+
+/** Keeps the run form's note and button in step with the scenario selection. */
+function updateSelection(): void {
+  for (const box of document.querySelectorAll<HTMLInputElement>('input[data-action="select-scenario"]')) {
+    box.checked = state.selectedScenarios.has(box.dataset.id ?? "");
+    box.closest(".scn-row")?.classList.toggle("selected", box.checked);
+  }
+  const form = app.querySelector('form[data-action="run-selected"]');
+  const note = form?.querySelector(".note");
+  if (note) note.textContent = selectionNote(state.selectedScenarios.size);
+  const label = form?.querySelector("button[type=submit] span:last-child");
+  if (label) label.textContent = state.selectedScenarios.size ? `Run ${plural(state.selectedScenarios.size, "scenario")}` : "Run";
+}
+
 async function act(action: string, el: HTMLElement): Promise<void> {
   switch (action) {
     case "reload":
       location.reload();
       return;
     case "theme":
-      state.theme = (el.dataset.theme as Theme | undefined) ?? "system";
-      localStorage.setItem(THEME_KEY, state.theme);
-      applyTheme();
-      return;
+      return setTheme((el.dataset.theme as Theme | undefined) ?? "system");
     case "palette":
       return showPalette();
+    case "shortcuts":
+      return showShortcuts();
     case "menu":
-      document.querySelector(".shell")?.classList.add("menu-open");
+      document.querySelector(".app")?.classList.add("menu-open");
       return;
     case "close-menu":
-      document.querySelector(".shell")?.classList.remove("menu-open");
-      return;
+      return closeMenu();
+    case "new-run":
+    case "focus-run":
+      return newRun();
     case "tag":
       state.scenarioFilter.tag = state.scenarioFilter.tag === el.dataset.tag ? "" : (el.dataset.tag ?? "");
       return render();
     case "world":
       state.scenarioFilter.world = el.dataset.world ?? "";
       return render();
+    case "select-shown":
+      for (const s of filterScenarios(state.scenarios ?? [], state.scenarioFilter)) state.selectedScenarios.add(s.id);
+      return updateSelection();
+    case "clear-scenarios":
+      state.selectedScenarios.clear();
+      return updateSelection();
     case "report-verdict":
       state.reportFilter.verdict = el.dataset.verdict ?? "";
       return render();
+    case "agent-reports":
+      return showAgentReports(el.dataset.agent ?? "");
     case "agents": {
       const form = el.closest("form");
       for (const box of form?.querySelectorAll<HTMLInputElement>('input[name="agent"]') ?? []) box.checked = el.dataset.pick === "all";
       if (form?.dataset.action === "run-draft") state.draftAgentsTouched = true;
       return;
     }
-    case "focus-run": {
-      const form = view().querySelector<HTMLFormElement>("form.run-card");
-      form?.scrollIntoView({ behavior: "smooth", block: "center" });
-      form?.classList.add("flash");
-      setTimeout(() => form?.classList.remove("flash"), 1200);
-      form?.querySelector<HTMLButtonElement>("button[type=submit]")?.focus({ preventScroll: true });
-      return;
-    }
-    case "matrix-filter": {
+    case "matrix-filter":
+    case "density": {
       const matrix = document.getElementById("matrix");
-      if (matrix) matrix.dataset.filter = el.dataset.filter ?? "";
+      if (matrix) matrix.dataset[action === "density" ? "density" : "filter"] = el.dataset[action === "density" ? "density" : "filter"] ?? "";
       for (const b of el.parentElement?.querySelectorAll<HTMLElement>(".seg-btn") ?? []) {
         b.classList.toggle("on", b === el);
         b.setAttribute("aria-pressed", String(b === el));
@@ -487,6 +596,21 @@ async function act(action: string, el: HTMLElement): Promise<void> {
       return;
     case "copy":
       return copy(el.dataset.copy ?? "", el);
+    case "copy-markdown": {
+      const run = findRun(el);
+      return run ? copy(runMarkdown(run), el) : undefined;
+    }
+    case "copy-commands": {
+      const run = findRun(el);
+      return run ? copy(runCommands(run).join("\n"), el) : undefined;
+    }
+    case "download-csv": {
+      const run = findRun(el);
+      if (run) download(`agentcrucible-${run.runId}.csv`, runCsv(run), "text/csv");
+      return;
+    }
+    case "rerun":
+      return rerun(findRun(el), el);
     case "clear-selection":
       state.selectedReports.clear();
       return render();
@@ -528,7 +652,7 @@ async function act(action: string, el: HTMLElement): Promise<void> {
     }
     case "replay": {
       const key = el.dataset.key ?? "";
-      const result = await busy(el, "Replaying…", () => api<ReplayResult>("/api/replay", { key }));
+      const result = await busy(el, "Replaying…", () => api<ReplayView>("/api/replay", { key }));
       if (!result) return;
       state.replays.set(key, result);
       toast(result.reproduced ? "Reproduced: every call, state, and verdict matches the report." : "Not reproduced: see the differences on the page.", result.reproduced ? "ok" : "bad");
@@ -544,7 +668,7 @@ async function act(action: string, el: HTMLElement): Promise<void> {
     case "save-scenario":
       return saveScenario(el);
     case "download-scenario":
-      download(`${(state.editor.validation?.summary?.id ?? "scenario").replace(/\//g, "-")}.yaml`, state.editor.text, "text/yaml");
+      download(`${(state.editor.validation?.ok ? state.editor.validation.summary.id : "scenario").replace(/\//g, "-")}.yaml`, state.editor.text, "text/yaml");
       return;
   }
 }
@@ -555,7 +679,11 @@ async function copy(text: string, el: HTMLElement): Promise<void> {
     const label = el.querySelector("span") ?? el;
     const before = label.textContent;
     label.textContent = "Copied";
-    setTimeout(() => (label.textContent = before), 1200);
+    el.classList.add("copied");
+    setTimeout(() => {
+      label.textContent = before;
+      el.classList.remove("copied");
+    }, 1200);
   } catch {
     toast("The browser did not allow copying to the clipboard.", "bad");
   }
@@ -582,9 +710,10 @@ function setDraft(text: string): void {
 
 /** Saves the draft. Overwriting asks first, unless the draft was opened from or saved to that scenario. */
 async function saveScenario(el: HTMLElement): Promise<void> {
+  if (!state.meta.scenarioDir) return void toast('Add "scenarioDirs" to the config file to save scenarios from the editor.', "bad");
   const text = state.editor.text;
   const save = (overwrite: boolean) => api<{ path: string; id: string }>("/api/scenario/save", { text, overwrite });
-  const ownFile = state.editorSource !== undefined && state.editorSource === state.editor.validation?.summary?.id;
+  const ownFile = state.editorSource !== undefined && state.editor.validation?.ok === true && state.editorSource === state.editor.validation.summary.id;
   const saved = await busy(el, "Saving…", async () => {
     try {
       return await save(ownFile);
@@ -604,21 +733,21 @@ let validations = 0;
 
 async function validate(): Promise<void> {
   const ticket = ++validations;
-  const result = await api<NonNullable<EditorState["validation"]>>("/api/validate", { text: state.editor.text }).catch((err: Error) => ({ ok: false, error: err.message }));
+  const result = await api<Validation>("/api/validate", { text: state.editor.text }).catch((err: Error): Validation => ({ ok: false, error: err.message }));
   if (ticket !== validations) return;
   state.editor.validation = result;
   const status = document.getElementById("editor-status");
   if (status) status.innerHTML = validationPanel(result);
   const lines = document.getElementById("editor-lines");
   if (lines) lines.innerHTML = gutterLines(state.editor.text, result.ok ? undefined : errorLine(result.error));
+  if (!result.ok) return;
   const file = document.getElementById("editor-file");
-  if (file && result.ok && "summary" in result && result.summary) file.textContent = `${result.summary.id}.yaml`;
+  if (file) file.textContent = `${result.summary.id}.yaml`;
   const target = document.getElementById("editor-target");
-  if (target?.dataset.dir && result.ok && "summary" in result && result.summary) target.textContent = `saves to ${target.dataset.dir}/${result.summary.id}.yaml`;
-  const expected = result.ok && "summary" in result && result.summary ? Object.keys(result.summary.expectedVerdicts) : undefined;
-  if (expected && !state.draftAgentsTouched) {
-    for (const box of document.querySelectorAll<HTMLInputElement>('form[data-action="run-draft"] input[name="agent"]')) box.checked = expected.includes(box.value);
-  }
+  if (target?.dataset.dir) target.textContent = `saves to ${target.dataset.dir}/${result.summary.id}.yaml`;
+  if (state.draftAgentsTouched) return;
+  const expected = Object.keys(result.summary.expectedVerdicts);
+  for (const box of document.querySelectorAll<HTMLInputElement>('form[data-action="run-draft"] input[name="agent"]')) box.checked = expected.includes(box.value);
 }
 
 function editorParts() {
@@ -700,24 +829,25 @@ function showPalette(): void {
     const go = (hash: string) => () => {
       location.hash = hash;
     };
+    const latest = state.runs?.find((r) => !r.draft);
     const items: PaletteItem[] = [
-      ...ROUTES.map((r) => ({ group: "Pages", label: r.label, icon: r.icon, run: go(`#/${r.route}`) })),
+      ...ROUTES.map((r) => ({ group: "Pages", label: r.label, hint: `G ${r.key.toUpperCase()}`, icon: r.icon, run: go(`#/${r.route}`) })),
       { group: "Actions", label: "Run the guided demo", icon: "play", keywords: "demo timeout refund", run: () => void runDemo() },
+      { group: "Actions", label: "New run", hint: "N", icon: "runs", keywords: "start scenarios agents", run: newRun },
+      ...(latest ? [{ group: "Actions", label: `Re-run ${latest.label}`, hint: latest.detail, icon: "repeat" as const, keywords: "again repeat last run", run: () => void rerun(latest) }] : []),
       { group: "Actions", label: "New single-step scenario", icon: "plus", keywords: "template editor", run: () => void useTemplate("single") },
       { group: "Actions", label: "New workflow scenario", icon: "workflow", keywords: "template editor", run: () => void useTemplate("workflow") },
+      { group: "Actions", label: "Keyboard shortcuts", hint: "?", icon: "keyboard", keywords: "keys help", run: showShortcuts },
       ...(["system", "light", "dark"] as const).map((t) => ({
         group: "Actions",
         label: `Theme: ${t === "system" ? "follow the system" : t}`,
         icon: t === "system" ? ("monitor" as const) : t === "light" ? ("sun" as const) : ("moon" as const),
         keywords: "appearance color dark light",
-        run: () => {
-          state.theme = t;
-          localStorage.setItem(THEME_KEY, t);
-          applyTheme();
-        },
+        run: () => setTheme(t),
       })),
       ...(state.scenarios ?? []).map((s) => ({ group: "Scenarios", label: s.id, hint: s.worlds.join(" + "), icon: "layers" as const, keywords: `${s.task} ${s.tags.join(" ")} ${s.faults.join(" ")}`, run: go(href("scenario", s.id)) })),
       ...(state.runs ?? []).slice(0, 10).map((r) => ({ group: "Runs", label: r.label, hint: r.detail, icon: "runs" as const, run: go(href("run", r.runId)) })),
+      ...state.meta.agents.map((a) => ({ group: "Agents", label: a.id, hint: "reports", icon: "bot" as const, keywords: a.description, run: () => showAgentReports(a.id) })),
     ];
     openPalette(items);
   });
@@ -741,6 +871,25 @@ function showTrial(index: string): void {
   for (const a of document.querySelectorAll<HTMLElement>("#report-root .trial-nav a")) a.classList.toggle("current", a.dataset.trial === index);
 }
 
+/** Opens every call of the shown trial, or closes them all when every one is open. */
+function toggleCalls(): void {
+  const calls = [...document.querySelectorAll<HTMLDetailsElement>("#report-root .trial.current li.call > details")];
+  const open = calls.some((d) => !d.open);
+  for (const d of calls) d.open = open;
+  const label = document.getElementById("toggle-calls");
+  if (label) label.textContent = open ? "Collapse calls" : "Expand calls";
+}
+
+/** Moves the focus to the next or previous call of the shown trial. */
+function stepCall(by: 1 | -1): void {
+  const calls = [...document.querySelectorAll<HTMLElement>("#report-root .trial.current li.call:not(.hidden)")].filter((li) => li.offsetParent !== null);
+  if (calls.length === 0) return;
+  const current = calls.indexOf(document.activeElement?.closest<HTMLElement>("li.call") as HTMLElement);
+  const next = calls[current < 0 ? (by > 0 ? 0 : calls.length - 1) : Math.min(calls.length - 1, Math.max(0, current + by))];
+  next.querySelector("summary")?.focus({ preventScroll: true });
+  next.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
 app.addEventListener("click", (e) => {
   const target = e.target as HTMLElement;
   const reportLink = target.closest<HTMLAnchorElement>('#report-root a[href^="#t"]');
@@ -752,6 +901,7 @@ app.addEventListener("click", (e) => {
   }
   const copyButton = target.closest<HTMLElement>("#report-root button[data-copy]");
   if (copyButton) return void copy(copyButton.dataset.copy ?? "", copyButton);
+  if (target.closest("#toggle-calls")) return toggleCalls();
   const el = target.closest<HTMLElement>("[data-action]");
   if (el && el.tagName !== "FORM" && el.tagName !== "INPUT") {
     e.preventDefault();
@@ -767,12 +917,7 @@ app.addEventListener("change", (e) => {
   if (el.dataset.action === "select-scenario") {
     if (el.checked) state.selectedScenarios.add(el.dataset.id ?? "");
     else state.selectedScenarios.delete(el.dataset.id ?? "");
-    el.closest(".scn-row")?.classList.toggle("selected", el.checked);
-    const form = app.querySelector('form[data-action="run-selected"]');
-    const note = form?.querySelector(".note");
-    if (note) note.textContent = selectionNote(state.selectedScenarios.size);
-    const label = form?.querySelector("button[type=submit] span:last-child");
-    if (label) label.textContent = state.selectedScenarios.size ? `Run ${plural(state.selectedScenarios.size, "scenario")}` : "Run";
+    updateSelection();
   } else if (el.dataset.action === "select-report" || el.dataset.action === "select-all-reports") {
     const boxes = el.dataset.action === "select-all-reports" ? [...document.querySelectorAll<HTMLInputElement>('#report-list input[data-action="select-report"]')] : [el];
     for (const box of boxes) {
@@ -797,8 +942,11 @@ app.addEventListener("input", (e) => {
   const el = e.target as HTMLInputElement | HTMLTextAreaElement;
   if (el.id === "scenario-q") {
     state.scenarioFilter.q = el.value;
+    const shown = filterScenarios(state.scenarios ?? [], state.scenarioFilter);
     const list = document.getElementById("scenario-list");
-    if (list) list.innerHTML = scenarioList(filterScenarios(state.scenarios ?? [], state.scenarioFilter), state.selectedScenarios);
+    if (list) list.innerHTML = scenarioList(shown, state.selectedScenarios);
+    const count = document.getElementById("scenario-shown");
+    if (count) count.textContent = `${plural(shown.length, "scenario")} shown`;
   } else if (el.id === "report-q") {
     state.reportFilter.q = el.value;
     const list = document.getElementById("report-list");
@@ -811,11 +959,6 @@ app.addEventListener("input", (e) => {
   }
 });
 
-app.addEventListener("keydown", (e) => {
-  const el = e.target as HTMLElement;
-  if (el.id === "editor-text") editorKey(e, el as HTMLTextAreaElement);
-});
-
 app.addEventListener("submit", (e) => {
   e.preventDefault();
   void runFromForm(e.target as HTMLFormElement);
@@ -825,20 +968,68 @@ document.addEventListener("selectionchange", () => {
   if (document.activeElement?.id === "editor-text") updateCaret();
 });
 
+/** Set after "g" is pressed, for half a second, so the next key picks a page. */
+let goPending: ReturnType<typeof setTimeout> | undefined;
+
 document.addEventListener("keydown", (e) => {
   const target = e.target as HTMLElement;
-  if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "k") {
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod && !e.altKey && e.key.toLowerCase() === "k") {
     e.preventDefault();
     if (paletteOpen()) closePalette();
     else showPalette();
     return;
   }
-  if (e.key === "Escape") document.querySelector(".shell")?.classList.remove("menu-open");
-  if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey || paletteOpen() || target.closest("input, textarea, select, [contenteditable]")) return;
-  const search = view().querySelector<HTMLInputElement>('input[type="search"]');
-  if (!search) return;
-  e.preventDefault();
-  search.focus();
+  if (target.id === "editor-text") {
+    if (mod && e.key.toLowerCase() === "s") {
+      e.preventDefault();
+      const save = view().querySelector<HTMLElement>('[data-action="save-scenario"]');
+      if (save) void saveScenario(save);
+    } else if (mod && e.key === "Enter") {
+      e.preventDefault();
+      view().querySelector<HTMLFormElement>('form[data-action="run-draft"]')?.requestSubmit();
+    } else editorKey(e, target as HTMLTextAreaElement);
+    return;
+  }
+  if (e.key === "Escape") closeMenu();
+  if (mod || e.altKey || paletteOpen() || document.querySelector("dialog[open]") || target.closest("input, textarea, select, [contenteditable]")) return;
+  if (goPending) {
+    clearTimeout(goPending);
+    goPending = undefined;
+    const page = ROUTES.find((r) => r.key === e.key.toLowerCase());
+    if (page) {
+      e.preventDefault();
+      location.hash = `#/${page.route}`;
+    }
+    return;
+  }
+  const inReport = Boolean(document.getElementById("report-root"));
+  switch (e.key) {
+    case "/": {
+      const search = view().querySelector<HTMLInputElement>('input[type="search"]');
+      if (!search) return;
+      e.preventDefault();
+      search.focus();
+      return;
+    }
+    case "g":
+      goPending = setTimeout(() => (goPending = undefined), 600);
+      return;
+    case "?":
+      e.preventDefault();
+      return showShortcuts();
+    case "t":
+      return flipTheme();
+    case "n":
+      return newRun();
+    case "j":
+    case "k":
+      if (inReport) stepCall(e.key === "j" ? 1 : -1);
+      return;
+    case "e":
+      if (inReport) toggleCalls();
+      return;
+  }
 });
 
 window.addEventListener("hashchange", () => void render());
@@ -854,7 +1045,7 @@ async function start(): Promise<void> {
   app.innerHTML = shell(state.meta, isMac);
   applyTheme();
   await render();
-  await Promise.all([ensureScenarios(), loadRuns()]).catch(() => undefined);
+  await Promise.all([ensureScenarios(), loadRuns(), refreshReports()]).catch(() => undefined);
   updateCounts();
 }
 

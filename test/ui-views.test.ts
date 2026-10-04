@@ -1,22 +1,27 @@
 import { describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
-import { highlightJson } from "../src/html.js";
+import { esc, highlightJson } from "../src/html.js";
 import { parseScenario } from "../src/scenarios.js";
 import { errorLine, highlightYaml } from "../src/ui/client/editor.js";
 import {
+  agentStats,
+  agentsView,
   argumentsLabel,
   catalogView,
   clip,
   comparisonPanel,
-  esc,
   filterReports,
   filterScenarios,
   href,
   replayPanel,
   reportList,
+  runCommands,
+  runCsv,
+  runMarkdown,
   runView,
   scenarioList,
   TEMPLATES,
+  uniqueResults,
   validationPanel,
   type ReportSummary,
   type ScenarioSummary,
@@ -168,6 +173,56 @@ describe("UI views", () => {
     expect(highlightJson(json)).toContain('<span class="tk-num">-1.5</span>');
     expect(errorLine("draft: cannot parse: Nested mappings are not allowed at line 3, column 5:")).toBe(3);
     expect(errorLine("draft: faults[0].kind must be one of x")).toBeUndefined();
+  });
+
+  it("exports a run's matrix as Markdown, CSV, and the commands that run it again", () => {
+    const run = {
+      runId: "run-3",
+      label: "two scenarios",
+      at: "now",
+      trials: 2,
+      seed: "it's",
+      results: [
+        report({ expected: "HARMFUL_ACTION" }),
+        report({ key: "mem-2", agentId: "liar", verdict: "SAFE_SUCCESS", expected: "SILENT_FAILURE", reason: 'said "done", twice' }),
+        report({ key: "mem-3", scenarioId: "email/y", verdict: "DEGRADED" }),
+      ],
+    };
+    expect(runMarkdown(run)).toBe(
+      "| Scenario | naive-retry | liar |\n| --- | --- | --- |\n| payments/x | HARMFUL_ACTION | SAFE_SUCCESS (expected SILENT_FAILURE) |\n| email/y | DEGRADED | not run |\n"
+    );
+    const csv = runCsv(run).split("\n");
+    expect(csv[0]).toBe("scenario,agent,verdict,expected,as_expected,trials,seed,rule,reason");
+    expect(csv[2]).toBe('payments/x,liar,SAFE_SUCCESS,SILENT_FAILURE,false,1,,expect.duplicate_effect,"said ""done"", twice"');
+    expect(csv[3]).toBe("email/y,naive-retry,DEGRADED,,,1,,expect.duplicate_effect,two refunds");
+    expect(runCommands(run)).toEqual([
+      "npx agentcrucible run --scenario payments/x --agents naive-retry,liar --trials 2 --seed 'it'\\''s'",
+      "npx agentcrucible run --scenario email/y --agents naive-retry --trials 2 --seed 'it'\\''s'",
+    ]);
+  });
+
+  it("counts a saved copy of a session result once and ranks agents by their share of safe results", () => {
+    const result = (over: Partial<ReportSummary>) => report({ seed: "s", finishedAt: "2026-10-04T10:00:00.000Z", ...over });
+    const rows = uniqueResults([
+      result({}),
+      result({ key: "file:naive-retry/x.report.json", file: "naive-retry/x.report.json" }),
+      result({ key: "mem-2", agentId: "cross-checker", verdict: "SAFE_SUCCESS" }),
+      result({ key: "mem-3", agentId: "cross-checker", verdict: "SAFE_FAILURE", scenarioId: "email/y" }),
+      { key: "file:bad", file: "bad", error: "not a report" },
+    ]);
+    expect(rows.map((r) => r.key)).toEqual(["mem-1", "mem-2", "mem-3"]);
+    const agents = ["naive-retry", "liar", "cross-checker"].map((id) => ({ id, description: `<b>${id}</b>`, source: "built-in" }));
+    expect(agentStats(agents, rows).map((s) => [s.id, s.total, s.safe, s.worst])).toEqual([
+      ["cross-checker", 2, 2, "SAFE_FAILURE"],
+      ["naive-retry", 1, 0, "HARMFUL_ACTION"],
+      ["liar", 0, 0, undefined],
+    ]);
+    const html = agentsView({ agents, verdicts: [] } as never, rows);
+    expect(html).toContain('data-agent="cross-checker"');
+    expect(html).toContain("&lt;b&gt;liar&lt;/b&gt;");
+    expect(html).not.toContain("<b>liar</b>");
+    expect(html).toContain("no results yet");
+    expect(html).toContain("2 agents of 3 have results.");
   });
 
   it("lists tool arguments with optional ones marked", () => {

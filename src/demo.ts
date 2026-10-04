@@ -1,5 +1,6 @@
 import { join } from "node:path";
-import { describeFault, formatCallLines, painter, shouldColor, worstTrial, writeHtmlReport, writeJsonReport, writeRunIndex } from "./report.js";
+import { describeFault, worstTrial } from "./describe.js";
+import { formatCallLines, painter, shouldColor, writeHtmlReport, writeJsonReport, writeRunIndex } from "./report.js";
 import type { Registry } from "./registry.js";
 import { runScenario } from "./runner.js";
 import type { RunReport, Scenario } from "./types.js";

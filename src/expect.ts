@@ -16,7 +16,7 @@ export function isValueRef(value: unknown): value is ValueRef {
   return keys === "exists" || keys === "count" || keys === "id_of" || keys === "field,of";
 }
 
-export function select(pattern: RecordPattern, records: WorldRecord[]): WorldRecord[] {
+function select(pattern: RecordPattern, records: WorldRecord[]): WorldRecord[] {
   return records.filter((r) => matchesPattern(pattern, r, records));
 }
 
@@ -26,7 +26,7 @@ export function matchesPattern(pattern: RecordPattern, record: { kind: string; i
   return Object.entries(pattern.fields).every(([field, matcher]) => matchField(matcher, record.fields[field], records));
 }
 
-export function matchField(matcher: FieldMatcher, value: unknown, records: WorldRecord[]): boolean {
+function matchField(matcher: FieldMatcher, value: unknown, records: WorldRecord[]): boolean {
   if ("equals" in matcher) return sameJson(matcher.equals, value);
   if ("one_of" in matcher) return matcher.one_of.some((option) => sameJson(option, value));
   if ("subset" in matcher) return isSubset(matcher.subset, value);
@@ -66,7 +66,7 @@ function describeMatcher(m: FieldMatcher): string {
 }
 
 /** "a refund with ...", "an email with ...". */
-export function aPattern(pattern: RecordPattern): string {
+function aPattern(pattern: RecordPattern): string {
   return `${/^[aeiou]/i.test(pattern.kind) ? "an" : "a"} ${describePattern(pattern)}`;
 }
 

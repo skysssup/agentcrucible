@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+A redesign of `agentcrucible ui`, the HTML report, and the run index, with a new page and keyboard shortcuts in the UI. Grading, reports, baselines, and the CLI are unchanged.
+
+### UI
+
+- **New look.** A new mark, an agent's spark over a crucible of molten metal; the Geist and Geist Mono typefaces, served by the UI server so the page still loads nothing from the network; warm neutrals with an ember accent; and the light and dark themes from one set of colors. Pages sit on a sheet beside the sidebar, under a bar that shows where you are and starts a new run.
+- **Agents page:** each agent's results from this session's runs and the saved reports, by verdict, with the share that ended safe and the most severe verdict. A saved report and the session run it came from count once. Click an agent for its reports.
+- **Overview:** the verdict mix as a ring with the share of safe results, the agents whose results ended safe most often, the number of fault kinds, and where the project's scenarios, reports, and baseline live.
+- **Runs:** Re-run repeats a run with the same scenarios, agents, trials, and seed. The matrix copies as a Markdown table, downloads as CSV, copies as the `agentcrucible run` commands that repeat it, and has a compact layout.
+- **Keyboard:** `?` lists the shortcuts. `G` then a letter goes to a page, `N` starts a run, `T` switches between light and dark, `J` and `K` move between a report's calls and `E` opens them all, and ⌘S and ⌘Enter save and run in the editor. The palette also re-runs the latest run and opens an agent's reports.
+- The scenario page lists the scenario's results and copies the command that runs it; the Scenarios page selects or clears every scenario shown; a click on a fault kind beside the editor copies its name.
+
+### HTML report and run index
+
+The same colors and type as the UI, with a brand bar, a verdict panel, and a timeline whose nodes mark committed, failed, and faulted calls; Expand calls opens every call of the shown trial. Colors follow the system's light or dark setting through CSS `light-dark()`, which browsers support since 2024. The run index orders verdicts by severity and names how many scenarios and agents it covers.
+
+### Compatibility
+
+Everything in [docs/stability.md](docs/stability.md) holds. The UI's HTTP API adds `demo` to `GET /api/meta` and serves `/fonts/`.
+
 ## 1.1.0
 
 1.1 adds four fault kinds that attack the strategies 1.0's agents relied on, an agent that survives one of them, per-trial time limits and parallel runs for model-backed agents, scenario-by-agent runs from the CLI, a Markdown run summary for CI, machine-readable listings, and a redesign of `agentcrucible ui` and the HTML report. No verdict changed: every bundled scenario gives the same verdicts for the agents that existed in 1.0.0, and reports and baselines written by 1.0.0 load, replay, and compare unchanged.
