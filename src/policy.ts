@@ -3,7 +3,7 @@ import type { Finding, PolicySpec, ToolCallRecord, TrialTrace } from "./types.js
 import type { World } from "./worlds/types.js";
 
 /** Calls that committed a new change: executed by the world and not deduplicated by an idempotency key. */
-export function newMutations(trace: TrialTrace, world: World): ToolCallRecord[] {
+function newMutations(trace: TrialTrace, world: World): ToolCallRecord[] {
   const mutating = new Set(world.tools.filter((t) => t.mutating).map((t) => t.name));
   return trace.calls.filter(
     (c) =>

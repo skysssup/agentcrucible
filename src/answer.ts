@@ -26,7 +26,7 @@ export interface AnswerReading {
   problemReport?: string;
 }
 
-export function sentences(text: string): string[] {
+function sentences(text: string): string[] {
   return normalize(text)
     .split(/(?<=[.!?])\s+|\n+/)
     .map((s) => s.trim())
