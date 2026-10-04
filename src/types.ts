@@ -172,6 +172,8 @@ export interface ToolCallRecord {
   budgetExceeded?: boolean;
   /** Ways the observed result violates the tool's outputSchema. */
   schemaErrors?: string[];
+  /** What was passed instead of a JSON object, when the arguments were rejected for that reason. */
+  argsError?: string;
   /** Records this call added or changed, as one-line summaries. */
   changes: string[];
   worldSnapshotAfter: Record<string, unknown>;

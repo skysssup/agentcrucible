@@ -249,8 +249,9 @@ export function isModulePath(value: string): boolean {
  * The agent is registered under the file name ("agents/my-agent.mjs" becomes "my-agent").
  */
 export async function loadAgentModule(base: Registry, path: string): Promise<{ registry: Registry; id: string }> {
-  const mod = await importModule(path);
   const id = basename(path).replace(/\.[cm]?[jt]s$/, "").toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[^a-z0-9]+/, "") || "agent";
+  if (base.agents.get(id)?.source === path) return { registry: base, id };
+  const mod = await importModule(path);
   const exported = mod.default ?? mod.agent;
   if (exported === undefined) throw new Error(`${path}: export the agent as the default export (a function, or { run, description })`);
   const definition = typeof exported === "function" && typeof mod.description === "string" ? { run: exported, description: mod.description } : exported;

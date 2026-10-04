@@ -71,7 +71,7 @@ export function replayReport(report: RunReport, registry: Registry): ReplayResul
     for (const [i, call] of recorded.calls.entries()) {
       let replayed: ToolCallRecord;
       try {
-        replayed = caller.call(call.tool, call.args);
+        replayed = caller.call(call.tool, call.argsError === undefined ? call.args : null);
       } catch (err) {
         return { ...base, replayedCalls: i, reproduced: false, divergence: { at: call.id, field: "error", recorded: call.observed, replayed: (err as Error).message } };
       }

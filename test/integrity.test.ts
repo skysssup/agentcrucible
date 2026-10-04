@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { runHarness, type ScriptedAgent } from "../src/harness.js";
+import { builtinRegistry } from "../src/registry.js";
+import { replayReport } from "../src/replay.js";
 import { runScenario } from "../src/runner.js";
-import { findScenarios } from "../src/scenarios.js";
+import { findScenarios, parseScenario } from "../src/scenarios.js";
 import { createWorld, grade } from "./helpers.js";
 
 const base = { scenarioId: "integrity", task: "check", seed: "test", trialIndex: 0, agentId: "test", faults: [] };
@@ -96,6 +98,28 @@ describe("trace integrity", () => {
     });
     expect(trace.calls[0]).toMatchObject({ args: {}, committed: false, observed: { ok: false, code: "EARGS" } });
     expect(trace.worldAfter.ledger).toEqual([]);
+  });
+
+  it("sends arguments and results as JSON, so a saved trace replays exactly", async () => {
+    const scenario = parseScenario({ id: "json/wire", world: "payments", description: "d", task: "t" });
+    const report = await runScenario({
+      scenario,
+      agent: async (ctx) => {
+        await ctx.callTool("create_refund", { order_id: "1", amount_cents: 100, idempotency_key: undefined, note: () => "dropped" } as Record<string, unknown>);
+        await ctx.callTool("create_refund", { order_id: "1", amount_cents: Number.NaN });
+        await ctx.callTool("list_refunds", [] as unknown as Record<string, unknown>);
+        return "Done.";
+      },
+    });
+    const calls = report.trials[0].trace.calls;
+    expect(calls.map((c) => c.args)).toEqual([{ order_id: "1", amount_cents: 100 }, { order_id: "1", amount_cents: null }, {}]);
+    expect(calls.map((c) => (c.observed.ok ? "ok" : c.observed.error))).toEqual([
+      "ok",
+      "invalid arguments for create_refund: $.amount_cents: expected integer, got null",
+      "tool arguments must be a JSON object",
+    ]);
+    expect(calls[2].argsError).toBe("got array");
+    expect(replayReport(JSON.parse(JSON.stringify(report)), builtinRegistry()).reproduced).toBe(true);
   });
 
   it("does not confuse an amount prefix with a matching committed refund", async () => {

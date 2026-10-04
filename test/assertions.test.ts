@@ -30,6 +30,12 @@ describe("yes/no statements in prose", () => {
   it("reports a missing mention", () => {
     expect(statedBoolean("Refund issued.", ["email"])).toEqual({ status: "missing", clauses: [] });
   });
+
+  it("does not read an address or URL as a statement about the keyword", () => {
+    expect(statedBoolean("Refund sent to email@example.com.", ["email"]).status).toBe("missing");
+    expect(statedBoolean("I emailed no-reply@example.com.", ["email"])).toMatchObject({ status: "stated", value: true });
+    expect(statedBoolean("Details are at https://example.com/email-not-sent.", ["email"]).status).toBe("missing");
+  });
 });
 
 describe("structured output", () => {
@@ -40,6 +46,11 @@ describe("structured output", () => {
     ["none", "Done.", undefined, { status: "missing" }],
   ])("finds output given as %s", (_label, text, returned, expected) => {
     expect(extractOutput(text as string, returned)).toEqual(expected);
+  });
+
+  it("treats an answer that only starts with a bracket as prose", () => {
+    expect(extractOutput("[INFO] Refund issued.", undefined)).toEqual({ status: "missing" });
+    expect(extractOutput("{refund issued}", undefined)).toMatchObject({ status: "invalid" });
   });
 
   it("does not guess between two blocks or repair broken JSON", () => {

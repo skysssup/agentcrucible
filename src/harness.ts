@@ -1,5 +1,5 @@
 import { BUILTIN_FAULTS, selectFault, type FaultDefinition } from "./faults.js";
-import { validate } from "./schema.js";
+import { jsonType, validate } from "./schema.js";
 import type { AgentMessage, Budget, FaultSpec, ToolCallRecord, ToolObservation, TrialTrace } from "./types.js";
 import { effectsBetween } from "./worlds/index.js";
 import type { World, WorldRecord, WorldTool } from "./worlds/types.js";
@@ -48,7 +48,7 @@ export interface CallerOptions {
  * Executes tool calls against a world with the scenario's budget and faults applied, recording
  * each one. `runHarness` drives it with an agent; `replay` drives it with a saved trace.
  */
-export function createToolCaller(opts: CallerOptions): { call(name: string, args: unknown): ToolCallRecord; calls: ToolCallRecord[] } {
+export function createToolCaller(opts: CallerOptions): { call(name: unknown, args: unknown): ToolCallRecord; calls: ToolCallRecord[] } {
   const { world, faults, seed, trialIndex, budget } = opts;
   const faultKinds = opts.faultKinds ?? BUILTIN_FAULTS;
   const calls: ToolCallRecord[] = [];
@@ -56,7 +56,8 @@ export function createToolCaller(opts: CallerOptions): { call(name: string, args
   let previous = world.snapshot();
   const hardLimit = budget?.maxCalls === undefined ? DEFAULT_CALL_LIMIT : budget.maxCalls + OVERRUN_LIMIT;
 
-  const call = (name: string, rawArgs: unknown): ToolCallRecord => {
+  const call = (rawName: unknown, rawArgs: unknown): ToolCallRecord => {
+    const name = String(rawName);
     if (calls.length >= hardLimit) {
       throw new Error(
         `the agent made more than ${hardLimit} tool calls in trial ${trialIndex}; it may be looping. ` +
@@ -76,13 +77,14 @@ export function createToolCaller(opts: CallerOptions): { call(name: string, args
       return recorded;
     };
 
-    let args: Record<string, unknown>;
-    try {
-      if (typeof rawArgs !== "object" || rawArgs === null || Array.isArray(rawArgs)) throw new Error();
-      args = structuredClone(rawArgs) as Record<string, unknown>;
-    } catch {
-      return record({ args: {}, committed: false, observed: error("tool arguments must be a JSON object", "EARGS") });
+    // Arguments travel as JSON, as they would to a real tool: undefined and functions are dropped
+    // and NaN becomes null. What is recorded is exactly what the tool received.
+    const encoded = toJson(rawArgs);
+    if (!encoded.ok || typeof encoded.value !== "object" || encoded.value === null || Array.isArray(encoded.value)) {
+      const argsError = encoded.ok ? `got ${jsonType(encoded.value)}` : encoded.reason;
+      return record({ args: {}, argsError, committed: false, observed: error("tool arguments must be a JSON object", "EARGS") });
     }
+    const args = encoded.value as Record<string, unknown>;
     const toolLimit = budget?.maxCallsPerTool?.[name];
     if ((budget?.maxCalls !== undefined && calls.length >= budget.maxCalls) || (toolLimit !== undefined && callIndex > toolLimit)) {
       const limit = toolLimit !== undefined && callIndex > toolLimit ? `${toolLimit} ${name} calls` : `${budget!.maxCalls} calls`;
@@ -107,12 +109,15 @@ export function createToolCaller(opts: CallerOptions): { call(name: string, args
     if (definition?.stage === "before") {
       return record({ args, committed: false, ...withSchema(observe(undefined)), ...faultFields });
     }
-    let committedResult: unknown;
+    let returned: unknown;
     try {
-      committedResult = structuredClone(world.invoke(name, structuredClone(args)));
+      returned = world.invoke(name, structuredClone(args));
     } catch (err) {
       return record({ args, committed: false, observed: error(err instanceof Error ? err.message : String(err), "EWORLD") });
     }
+    const result = toJson(returned ?? null);
+    if (!result.ok) throw new Error(`world ${world.name}: ${name} returned a result that cannot be sent as JSON (${result.reason})`);
+    const committedResult = result.value;
     const resultErrors = tool.outputSchema ? validate(tool.outputSchema, committedResult) : [];
     if (resultErrors.length) {
       throw new Error(`world ${world.name}: ${name} returned a result that violates its outputSchema (${resultErrors.join("; ")})`);
@@ -126,7 +131,8 @@ export function createToolCaller(opts: CallerOptions): { call(name: string, args
 
 /** Runs a fault definition and checks that it produced an observation an agent can receive. */
 function applyFault(kind: string, definition: FaultDefinition, input: Parameters<FaultDefinition["apply"]>[0]): ToolObservation {
-  const observed = definition.apply(input) as unknown;
+  const encoded = toJson(definition.apply(input));
+  const observed = encoded.ok ? encoded.value : `a value that cannot be sent as JSON (${encoded.reason})`;
   const o = observed as Partial<Record<"ok" | "error" | "code" | "result", unknown>> | null;
   const valid =
     typeof o === "object" &&
@@ -135,7 +141,18 @@ function applyFault(kind: string, definition: FaultDefinition, input: Parameters
   if (!valid) {
     throw new Error(`fault ${kind} must return { ok: true, result } or { ok: false, error, code? } (got ${JSON.stringify(observed)})`);
   }
-  return structuredClone(observed as ToolObservation);
+  return observed as ToolObservation;
+}
+
+/** The value after a JSON round trip, or why it cannot make one. */
+function toJson(value: unknown): { ok: true; value: unknown } | { ok: false; reason: string } {
+  try {
+    const text = JSON.stringify(value);
+    if (text === undefined) return { ok: false, reason: `got ${typeof value}` };
+    return { ok: true, value: JSON.parse(text) };
+  } catch (err) {
+    return { ok: false, reason: `cannot be encoded as JSON: ${(err as Error).message}` };
+  }
 }
 
 export interface HarnessOptions extends Omit<CallerOptions, "world"> {

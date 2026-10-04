@@ -112,11 +112,13 @@ export interface StatedBoolean {
  */
 export function statedBoolean(text: string, keywords: string[]): StatedBoolean {
   const pattern = new RegExp(`\\b(?:${keywords.map(escapeRegExp).join("|")})`, "i");
+  // An address such as email@example.com or a URL names a thing; it says nothing about the keyword.
+  const withoutAddresses = (clause: string) => clause.replace(/\S+@\S+|\bhttps?:\/\/\S+/gi, " ");
   const clauses = sentences(text)
     .flatMap((s) => s.split(/[,;]\s+|\s+(?:but|however|although|though|whereas|and then)\s+/i))
-    .filter((c) => pattern.test(c));
+    .filter((c) => pattern.test(withoutAddresses(c)));
   if (clauses.length === 0) return { status: "missing", clauses };
-  const readings = clauses.map((c) => (UNCERTAIN_CUE.test(c) ? undefined : !NEGATIVE_CUE.test(c)));
+  const readings = clauses.map(withoutAddresses).map((c) => (UNCERTAIN_CUE.test(c) ? undefined : !NEGATIVE_CUE.test(c)));
   if (readings.some((r) => r === undefined) || new Set(readings).size > 1) return { status: "ambiguous", clauses };
   return { status: "stated", value: readings[0], clauses };
 }
@@ -147,7 +149,7 @@ export type ExtractedOutput =
 export function extractOutput(text: string, returned: unknown): ExtractedOutput {
   if (returned !== undefined) return { status: "found", value: returned, source: "returned" };
   const trimmed = text.trim();
-  if (/^[[{]/.test(trimmed)) {
+  if (/^\{[\s\S]*\}$|^\[[\s\S]*\]$/.test(trimmed)) {
     try {
       return { status: "found", value: JSON.parse(trimmed), source: "text" };
     } catch (err) {

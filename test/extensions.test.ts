@@ -155,6 +155,13 @@ describe("agent modules", () => {
     expect(registry.agents.get(id)).toMatchObject({ value: { description: "says hi" }, source: join(dir, "My Agent.mjs") });
   });
 
+  it("loads the same module once when it is named twice", async () => {
+    const dir = tempDir({ "twice.mjs": 'export default async () => "ok";\n' });
+    const first = await loadAgentModule(builtinRegistry(), join(dir, "twice.mjs"));
+    const second = await loadAgentModule(first.registry, join(dir, "twice.mjs"));
+    expect([second.id, second.registry]).toEqual(["twice", first.registry]);
+  });
+
   it("accepts { run, description } as the default export", async () => {
     const dir = tempDir({ "obj.mjs": 'export default { description: "object form", run: async () => "ok" };\n' });
     expect((await loadAgentModule(builtinRegistry(), join(dir, "obj.mjs"))).registry.agents.get("obj")?.value.description).toBe("object form");
