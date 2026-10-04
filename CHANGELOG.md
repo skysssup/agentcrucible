@@ -1,8 +1,35 @@
 # Changelog
 
-## Unreleased
+## 1.1.0
 
-A redesign of `agentcrucible ui` and of the HTML report and run index. Verdicts, reports, baselines, and the CLI are unchanged.
+1.1 adds four fault kinds that attack the strategies 1.0's agents relied on, an agent that survives one of them, per-trial time limits and parallel runs for model-backed agents, scenario-by-agent runs from the CLI, a Markdown run summary for CI, machine-readable listings, and a redesign of `agentcrucible ui` and the HTML report. No verdict changed: every bundled scenario gives the same verdicts for the agents that existed in 1.0.0, and reports and baselines written by 1.0.0 load, replay, and compare unchanged.
+
+### Fault kinds
+
+- **`phantom_success`** (before the call runs): the agent receives a well-formed success response and nothing happens, as when a request is acknowledged and then lost. The response is built from the tool's output schema and the call's arguments, so it passes any check an agent can make on it; `params.result` gives an exact response instead. Only reading the state back tells it from a real success.
+- **`replica_lag`** (after): a list response comes back empty, as from a replica that has not caught up. It is the fault that defeats a read-back: an agent that trusts the empty read reports a committed write as not done.
+- **`partial_response`** (after): the response loses `id` and every `*_id` field, or `params.fields`, from the object or from each item of a list. It parses, so only an agent that checks the fields it relies on notices.
+- **`duplicate_delivery`**, with the new stage **`twice`**: the call reaches the service twice, as when a proxy retries on its own, and the agent sees the first response. A call with an idempotency key is deduplicated the second time; one without a key commits twice, and `expect.duplicate_effect` fires although `policy.forbidBlindRetry`, which counts calls, does not.
+
+Extensions can use the `twice` stage, and every fault's `apply` now receives the tool's `outputSchema`. The library exports `sampleValue(schema, hints)`, which builds a value that satisfies a schema from its constants, enums, and types.
+
+### Agents and scenarios
+
+- **`verify-after-write`** makes one keyed write, reads the state back whatever the response said, and reports what the read shows. It is the one scripted agent that catches `phantom_success`; `replica_lag` still fools it, which grades `DEGRADED` because it says so.
+- **Five bundled scenarios:** `payments/phantom-success`, `payments/replica-lag`, `payments/partial-response`, `payments/duplicate-delivery`, and `email/phantom-send`, with `expected_verdicts` that `check` verifies (95 checks over 23 scenarios and 10 agents). [docs/examples.md](docs/examples.md) walks through the phantom success and the duplicate delivery.
+
+### Running
+
+- **`--timeout <ms>`** (config `timeoutMs`) on `run`, `compare`, and `check`: a trial that takes longer fails the run with an error naming the agent, trial, and scenario, instead of hanging it. At the limit the agent's new `ctx.signal` aborts, so a model loop can cancel its requests, and any further tool call is refused with `ECLOSED`.
+- **`--concurrency <n>`** (config `concurrency`) on `run`, `compare`, and `check`: that many scenario-and-agent runs in flight at once, up to 64. Each run has its own worlds and seed, so the reports, their order, and the exit status do not change; a slow agent finishes sooner. The UI applies both settings from the config file to its runs.
+- **`run --agents a,b,./x.mjs`** runs every selected scenario against every listed agent, writes each agent's reports to `<out>/<agent>/`, and prints a scenario-by-agent table. One agent keeps the 1.0 layout. Baselines already keyed entries by scenario and agent, so `--save-baseline` and `--baseline` cover the whole matrix.
+- **`summary.md`** is written next to `index.html` on every `run`: the run's table in Markdown, the failing results with their reasons, and the baseline changes, with no timestamps. `cat reports/summary.md >> "$GITHUB_STEP_SUMMARY"` puts it on a GitHub Actions job page.
+- **`--json`** on `list`, `agents`, `worlds`, and `faults` prints the same information as data, including each tool's JSON Schemas and each fault kind's params schema.
+- `ctx.scenarioId` and `ctx.trialIndex` tell an agent which scenario and trial it is in.
+
+### Library
+
+New exports: `runMatrix` (scenarios × agents, or a function giving each scenario its agents, with `concurrency`, `timeoutMs`, and an `onReport` callback, in a fixed order), `renderRunSummary` and `writeRunSummary`, `sampleValue`, `parseTimeout`, `parseConcurrency`, `MAX_CONCURRENCY`, `FAULT_STAGES`, and the types `MatrixOptions`, `SummaryOptions`, and `FaultStage`. `runScenario` accepts `timeoutMs`. `AgentContext` gains `scenarioId`, `trialIndex`, and `signal` (the harness always provides them, so a context stubbed by hand in a TypeScript test needs the three new fields); `FaultInput` gains `outputSchema`; `FaultDefinition.stage` accepts `"twice"`. An extension that switches on a fault's stage should treat `twice` like `after` for the first delivery.
 
 ### UI
 
@@ -12,11 +39,15 @@ A redesign of `agentcrucible ui` and of the HTML report and run index. Verdicts,
 - **Run matrix.** Each agent column and scenario row shows its mix of verdicts and how many results matched `expected_verdicts`. With several trials, a cell shows how its trials' verdicts split and marks the result flaky when they disagree, and the matrix can show only the unexpected or the flaky results. A run that takes more than a moment shows a toast with a running clock, and toasts after saving link to what was saved.
 - **Runs survive a reload.** The server keeps the last 50 runs, and `GET /api/runs` lists them; each run on the Runs page shows its mix of verdicts and whether every result matched `expected_verdicts`.
 - **Editor:** line numbers, YAML highlighting, the line of a parse error marked, Tab and Shift+Tab indentation, Enter that keeps the indentation, and the cursor position.
-- Scenarios are grouped by folder, with world and tag filters and a run panel beside the list; the scenario page shows the source with line numbers. The Reports page can select every report shown.
+- Scenarios are grouped by folder, with world and tag filters and a run panel beside the list; the scenario page shows the source with line numbers. The Reports page can select every report shown. The catalog labels each fault kind's stage, including a call that runs twice.
 
 ### HTML report and run index
 
 - The report opens with why it got its verdict and the deciding rule, next to the task, faults, budget, and expectations, then the commands that reproduce it. Trials list their statistics, calls are cards on a timeline marked by whether they committed, failed, or had a fault, calls a finding cites are labeled `evidence`, and JSON is highlighted. The run index shows the mix of verdicts as a bar.
+
+### Compatibility
+
+Everything in [docs/stability.md](docs/stability.md) holds. Scenario files, reports, baselines, verdicts, rule ids, and the CLI's existing commands, options, and exit statuses are unchanged; the additions are new fault kinds, a new agent, new scenario ids, new options, new config keys, new fields on the agent context and fault input, and new library exports. `run` now also writes `summary.md` into the output directory.
 
 ## 1.0.0
 

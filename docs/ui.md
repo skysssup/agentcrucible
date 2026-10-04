@@ -7,14 +7,14 @@ npx agentcrucible ui
 ```
 
 ```text
-AgentCrucible 1.0.0 UI: http://127.0.0.1:7357/
+AgentCrucible 1.1.0 UI: http://127.0.0.1:7357/
   scenarios: bundled, scenarios (the editor saves to scenarios)
   reports:   .agentcrucible/out
   baseline:  agentcrucible-baseline.json
 Press Ctrl+C to stop.
 ```
 
-Open the printed address in a browser. The UI reads the same config file as the CLI: the scenario directories, extensions, the agent module in `agent`, the report directory in `out`, and `failOn`.
+Open the printed address in a browser. The UI reads the same config file as the CLI: the scenario directories, extensions, the agent module in `agent`, the report directory in `out`, `failOn`, and the `timeoutMs` and `concurrency` limits for its runs.
 
 ![The guided demo: five agents handle the same lost response](images/ui-demo.png)
 

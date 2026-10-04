@@ -18,6 +18,11 @@ export interface AgentContext {
   callTool: (name: string, args: Record<string, unknown>) => Promise<ToolCallResult>;
   /** Copy of the transcript so far. */
   history: AgentMessage[];
+  /** The scenario being run and which of its trials this is, for the agent's own logs. */
+  scenarioId: string;
+  trialIndex: number;
+  /** Aborted when the trial's time limit runs out, so a model loop can cancel its requests. */
+  signal: AbortSignal;
 }
 
 /** A final answer with structured output alongside the text. */
@@ -99,7 +104,14 @@ export function createToolCaller(opts: CallerOptions): { call(name: unknown, arg
     const definition = spec ? faultKinds[spec.kind] : undefined;
     if (spec && !definition) throw new Error(`fault kind "${spec.kind}" is not registered`);
     const faultFields = spec ? { faultApplied: spec.kind, faultIndex: index } : {};
-    const observe = (result: unknown) => applyFault(spec!.kind, definition!, { tool: name, args: structuredClone(args), result: structuredClone(result), params: spec!.params ?? {} });
+    const observe = (result: unknown) =>
+      applyFault(spec!.kind, definition!, {
+        tool: name,
+        args: structuredClone(args),
+        result: structuredClone(result),
+        params: spec!.params ?? {},
+        ...(tool.outputSchema ? { outputSchema: structuredClone(tool.outputSchema) } : {}),
+      });
     const schemaErrors = (observed: ToolObservation) => (observed.ok && tool.outputSchema ? validate(tool.outputSchema, observed.result) : []);
     const withSchema = (observed: ToolObservation) => {
       const errors = schemaErrors(observed);
@@ -109,18 +121,27 @@ export function createToolCaller(opts: CallerOptions): { call(name: unknown, arg
     if (definition?.stage === "before") {
       return record({ args, committed: false, ...withSchema(observe(undefined)), ...faultFields });
     }
-    let returned: unknown;
+    const invoke = (): unknown => {
+      const result = toJson(world.invoke(name, structuredClone(args)) ?? null);
+      if (!result.ok) throw new WorldContractError(`world ${world.name}: ${name} returned a result that cannot be sent as JSON (${result.reason})`);
+      const resultErrors = tool.outputSchema ? validate(tool.outputSchema, result.value) : [];
+      if (resultErrors.length) throw new WorldContractError(`world ${world.name}: ${name} returned a result that violates its outputSchema (${resultErrors.join("; ")})`);
+      return result.value;
+    };
+    let committedResult: unknown;
     try {
-      returned = world.invoke(name, structuredClone(args));
+      committedResult = invoke();
     } catch (err) {
+      if (err instanceof WorldContractError) throw err;
       return record({ args, committed: false, observed: error(err instanceof Error ? err.message : String(err), "EWORLD") });
     }
-    const result = toJson(returned ?? null);
-    if (!result.ok) throw new Error(`world ${world.name}: ${name} returned a result that cannot be sent as JSON (${result.reason})`);
-    const committedResult = result.value;
-    const resultErrors = tool.outputSchema ? validate(tool.outputSchema, committedResult) : [];
-    if (resultErrors.length) {
-      throw new Error(`world ${world.name}: ${name} returned a result that violates its outputSchema (${resultErrors.join("; ")})`);
+    if (definition?.stage === "twice") {
+      // The second delivery is processed like the first; a rejection there is the service's problem, not the agent's.
+      try {
+        invoke();
+      } catch (err) {
+        if (err instanceof WorldContractError) throw err;
+      }
     }
     const observed: ToolObservation = definition ? observe(committedResult) : { ok: true, result: committedResult };
     return record({ args, committed: true, committedResult, ...withSchema(observed), ...faultFields });
@@ -128,6 +149,9 @@ export function createToolCaller(opts: CallerOptions): { call(name: unknown, arg
 
   return { call, calls };
 }
+
+/** A world broke its own contract: its result cannot travel as JSON or violates its outputSchema. */
+class WorldContractError extends Error {}
 
 /** Runs a fault definition and checks that it produced an observation an agent can receive. */
 function applyFault(kind: string, definition: FaultDefinition, input: Parameters<FaultDefinition["apply"]>[0]): ToolObservation {
@@ -163,6 +187,8 @@ export interface HarnessOptions extends Omit<CallerOptions, "world"> {
   agent: ScriptedAgent;
   /** Records added after reset, before the agent starts. */
   setup?: WorldRecord[];
+  /** Milliseconds the agent may take to answer. Past it, `ctx.signal` aborts and the trial fails with an error. */
+  timeoutMs?: number;
 }
 
 /** Runs one trial: resets and seeds the world, lets the agent call tools with faults applied, and records everything. */
@@ -176,6 +202,7 @@ export async function runHarness(opts: HarnessOptions): Promise<TrialTrace> {
   const worldBefore = world.snapshot();
   const caller = createToolCaller(opts);
   const messages: AgentMessage[] = [{ role: "user", content: opts.task }];
+  const controller = new AbortController();
   let finished = false;
 
   const callTool: AgentContext["callTool"] = async (name, args) => {
@@ -186,14 +213,41 @@ export async function runHarness(opts: HarnessOptions): Promise<TrialTrace> {
     return structuredClone(call.observed);
   };
 
-  const answer = await opts.agent({
-    task: opts.task,
-    tools: structuredClone(world.tools),
-    callTool,
-    get history() {
-      return structuredClone(messages);
-    },
-  });
+  const agentAnswer = Promise.resolve().then(() =>
+    opts.agent({
+      task: opts.task,
+      tools: structuredClone(world.tools),
+      callTool,
+      get history() {
+        return structuredClone(messages);
+      },
+      scenarioId: opts.scenarioId,
+      trialIndex: opts.trialIndex,
+      signal: controller.signal,
+    })
+  );
+  let answer: unknown;
+  if (opts.timeoutMs === undefined) {
+    answer = await agentAnswer;
+  } else {
+    // After the limit the agent keeps running on its own, with every further call refused (ECLOSED) and its outcome ignored.
+    agentAnswer.catch(() => {});
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        finished = true;
+        controller.abort(new Error(`the trial's time limit of ${opts.timeoutMs} ms ran out`));
+        reject(new Error(`agent "${opts.agentId}" did not answer within ${opts.timeoutMs} ms (${caller.calls.length} tool call(s) so far)`));
+      }, opts.timeoutMs);
+      timer.unref?.();
+    });
+    try {
+      answer = await Promise.race([agentAnswer, timeout]);
+    } finally {
+      clearTimeout(timer);
+      finished = true;
+    }
+  }
   finished = true;
   const { text, output } = normalizeAnswer(answer, opts.agentId);
   messages.push({ role: "assistant", content: text });

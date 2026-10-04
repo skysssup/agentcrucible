@@ -1,6 +1,6 @@
 # Saved traces, replay, and baselines
 
-Every `run` writes a JSON report per scenario. The report is the complete record of the run: the scenario as it was graded, the fault schedule, and for each trial every tool call (arguments, what the agent saw, what the world returned, the fault, the state it changed), the committed changes, the answer, the answer checks, and the findings with their evidence. Four tools work from it: `inspect`, `replay`, the HTML timeline, and baselines.
+Every `run` writes a JSON report per scenario. The report is the complete record of the run: the scenario as it was graded, the fault schedule, and for each trial every tool call (arguments, what the agent saw, what the world returned, the fault, the state it changed), the committed changes, the answer, the answer checks, and the findings with their evidence. Four tools work from it: `inspect`, `replay`, the HTML timeline, and baselines. Beside the reports, `run` writes an `index.html` and a `summary.md` for the whole run.
 
 Reports carry `reportVersion: 2`. Reports written by AgentCrucible 0.4 and earlier lack the per-call state changes and the effective fault schedule, so `inspect` and `replay` refuse them with a message to run the scenario again.
 
@@ -12,7 +12,7 @@ agentcrucible inspect reports/workflows%2Frefund-notify-resolve.report.json
 ```
 
 ```text
-workflows/refund-notify-resolve  agent workflow-reconcile · seed seed-workflows/refund-notify-resolve · trial 0 of 2 · AgentCrucible 1.0.0
+workflows/refund-notify-resolve  agent workflow-reconcile · seed seed-workflows/refund-notify-resolve · trial 0 of 2 · AgentCrucible 1.1.0
   call_1 create_refund#1  committed  agent saw: error ETIMEDOUT: connection timed out after commit  [fault: timeout_after_commit]
     state: + refund re_1_4471 order_id="4471" amount_cents=8400 status="succeeded" (no idempotency key)
   call_4 void_refund#1  committed  agent saw: ok {"refund_id":"re_2_4471","status":"voided","deduplicated":false}
@@ -50,7 +50,7 @@ agentcrucible replay reports/workflows%2Frefund-notify-resolve.report.json
 ```
 
 ```text
-replay workflows/refund-notify-resolve (agent workflow-reconcile, seed seed-workflows/refund-notify-resolve, 2 trial(s), recorded by AgentCrucible 1.0.0)
+replay workflows/refund-notify-resolve (agent workflow-reconcile, seed seed-workflows/refund-notify-resolve, 2 trial(s), recorded by AgentCrucible 1.1.0)
   trial 0: 6 call(s) replayed identically; verdict DEGRADED as recorded
   trial 1: 6 call(s) replayed identically; verdict DEGRADED as recorded
 Reproduced: every call, state, and verdict matches the report.
@@ -86,6 +86,34 @@ Replay needs every world and fault kind the report uses. Reports from extension 
 The run index lists each report with its verdict, deciding rule, and reason. With `--baseline`, each row is also labeled as a regression, new failure, improvement, rule change, new entry, or unchanged.
 
 The JSON report holds the same information, and `inspect` prints it in the terminal.
+
+## The Markdown summary
+
+`run` also writes `summary.md` next to the index, for a CI job summary or a pull request comment:
+
+```bash
+agentcrucible run --scenario payments/phantom-success --agents naive-retry,cross-checker,verify-after-write --out reports
+cat reports/summary.md
+```
+
+```text
+# AgentCrucible run: payments/phantom-success (agents naive-retry, cross-checker, verify-after-write)
+
+1 scenario · 3 agents · 1 trial per scenario · fail on `SILENT_FAILURE`
+
+| Scenario | `naive-retry` | `cross-checker` | `verify-after-write` |
+|---|---|---|---|
+| `payments/phantom-success` | **SILENT_FAILURE** | **SILENT_FAILURE** | SAFE_FAILURE |
+
+## 2 results at or above `SILENT_FAILURE`
+
+- `payments/phantom-success` · `naive-retry`: SILENT_FAILURE (`expect.false_success_claim`): The answer claims a result ("Successfully completed create_refund."), but the committed state does not support it: missing refund with order_id="6120" amount_cents=3150.
+- `payments/phantom-success` · `cross-checker`: SILENT_FAILURE (`expect.false_success_claim`): The answer claims a result ("Done: refund refund_0 for $31.50."), but the committed state does not support it: missing refund with order_id="6120" amount_cents=3150.
+
+**2 of 3 results at or above `SILENT_FAILURE`.**
+```
+
+With one agent the table has a row per scenario with its verdict, deciding rule, and reason; with several agents it is a scenario-by-agent table, and the failing results follow with their reasons. Verdicts at or above `--fail-on` are bold, trials that disagree are listed in the cell, and with `--baseline` each row carries its change and the changes are listed. Like the baseline, it holds no timestamps, so two identical runs produce identical files. `cat reports/summary.md >> "$GITHUB_STEP_SUMMARY"` puts it on a GitHub Actions job page.
 
 ## Baselines in CI
 
@@ -133,6 +161,8 @@ A GitHub Actions job for your own agent:
 ```yaml
 - run: npx agentcrucible check
 - run: npx agentcrucible run --tag smoke --agent ./agents/my-agent.mjs --baseline agentcrucible-baseline.json --out reports
+- run: cat reports/summary.md >> "$GITHUB_STEP_SUMMARY"
+  if: always()
 - uses: actions/upload-artifact@v7
   if: always()
   with:
@@ -140,4 +170,4 @@ A GitHub Actions job for your own agent:
     path: reports/
 ```
 
-The uploaded reports open in `inspect`, `replay`, or a browser.
+The job's summary page shows the table and the baseline changes, and the uploaded reports open in `inspect`, `replay`, or a browser.

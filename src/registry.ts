@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { BUILTIN_FAULTS, type FaultDefinition } from "./faults.js";
+import { BUILTIN_FAULTS, FAULT_STAGES, type FaultDefinition, type FaultStage } from "./faults.js";
 import { BUILTIN_AGENTS, type AgentDefinition } from "./fixtures/agents.js";
 import type { ScriptedAgent } from "./harness.js";
 import { schemaProblems } from "./schema.js";
@@ -192,7 +192,9 @@ export function faultProblems(definition: unknown): string[] {
   const d = definition as Partial<FaultDefinition>;
   const problems: string[] = [];
   if (typeof d.description !== "string" || !d.description.trim()) problems.push("description must be a non-empty string");
-  if (d.stage !== "before" && d.stage !== "after") problems.push('stage must be "before" (the call does not run) or "after" (it runs, then the response changes)');
+  if (!FAULT_STAGES.includes(d.stage as FaultStage)) {
+    problems.push('stage must be "before" (the call does not run), "after" (it runs, then the response changes), or "twice" (it runs twice; the agent sees the first response)');
+  }
   if (typeof d.apply !== "function") problems.push("apply must be a function ({ tool, args, result, params }) => observation");
   if (d.params !== undefined) {
     problems.push(...schemaProblems(d.params, "params"));

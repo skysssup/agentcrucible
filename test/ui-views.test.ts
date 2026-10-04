@@ -5,6 +5,7 @@ import { parseScenario } from "../src/scenarios.js";
 import { errorLine, highlightYaml } from "../src/ui/client/editor.js";
 import {
   argumentsLabel,
+  catalogView,
   clip,
   comparisonPanel,
   esc,
@@ -172,5 +173,32 @@ describe("UI views", () => {
   it("lists tool arguments with optional ones marked", () => {
     expect(argumentsLabel({ type: "object", properties: { order_id: {}, idempotency_key: {} }, required: ["order_id"] })).toBe("order_id, idempotency_key?");
     expect(argumentsLabel(undefined)).toBe("");
+  });
+
+  it("labels each fault stage in the catalog, including a call that runs twice", () => {
+    const meta = {
+      version: "x",
+      cwd: "/p",
+      outDir: "out",
+      scenarioRoots: [],
+      scenarioDir: null,
+      baselinePath: "b.json",
+      failOn: "SILENT_FAILURE" as const,
+      verdicts: [],
+      agents: [{ id: "verify-after-write", description: "reads back", source: "built-in" }],
+      worlds: [],
+      faults: [
+        { kind: "timeout", stage: "before", description: "d1", params: [], source: "built-in" },
+        { kind: "replica_lag", stage: "after", description: "d2", params: [], source: "built-in" },
+        { kind: "duplicate_delivery", stage: "twice", description: "d3", params: [], source: "built-in" },
+        { kind: "phantom_success", stage: "before", description: "d4", params: ["result"], source: "built-in" },
+      ],
+    };
+    const html = catalogView(meta as never);
+    expect(html).toContain("verify-after-write");
+    expect(html).toMatch(/timeout[\s\S]*?before the call runs/);
+    expect(html).toMatch(/replica_lag[\s\S]*?after the call runs/);
+    expect(html).toMatch(/duplicate_delivery[\s\S]*?the call runs twice/);
+    expect(html).toMatch(/phantom_success[\s\S]*?<code class="code-chip">result<\/code>/);
   });
 });

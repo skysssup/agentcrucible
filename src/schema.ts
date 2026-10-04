@@ -145,6 +145,37 @@ export function validate(schema: JsonSchema, value: unknown, path = "$", out: st
   return out;
 }
 
+/**
+ * A value that satisfies the schema, built from its constants, enums, and types. Object properties
+ * take their value from `hints` (for example, the call's arguments) when the hint satisfies the
+ * property's schema; otherwise ids become `<stem>_0`, numbers their minimum or 0, strings empty,
+ * booleans false, and lists empty, so the result is well-formed but visibly synthetic.
+ */
+export function sampleValue(schema: JsonSchema, hints: Record<string, unknown> = {}, name?: string): unknown {
+  if (schema.const !== undefined) return schema.const;
+  if (schema.enum?.length) return schema.enum[0];
+  if (schema.anyOf?.length) return sampleValue({ ...schema, anyOf: undefined, ...schema.anyOf[0] }, hints, name);
+  const type = Array.isArray(schema.type) ? schema.type[0] : schema.type;
+  const hint = name === undefined ? undefined : hints[name];
+  if (hint !== undefined && validate(schema, hint).length === 0) return structuredClone(hint);
+  switch (type) {
+    case "object":
+      return Object.fromEntries(Object.entries(schema.properties ?? {}).map(([key, child]) => [key, sampleValue(child, hints, key)]));
+    case "array":
+      return Array.from({ length: schema.minItems ?? 0 }, () => sampleValue(schema.items ?? {}, hints));
+    case "string":
+      if (name !== undefined && (name === "id" || name.endsWith("_id"))) return `${name === "id" ? "id" : name.slice(0, -"_id".length)}_0`;
+      return "x".repeat(schema.minLength ?? 0);
+    case "integer":
+    case "number":
+      return schema.minimum !== undefined && schema.minimum > 0 ? schema.minimum : 0;
+    case "boolean":
+      return false;
+    default:
+      return null;
+  }
+}
+
 function hasType(value: unknown, type: JsonType): boolean {
   switch (type) {
     case "null":

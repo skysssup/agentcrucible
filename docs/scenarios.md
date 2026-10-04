@@ -87,13 +87,19 @@ When several faults match a call, the first one in the list applies. The trial r
 | `silent_wrong_data` | after | `ok`, with a numeric field changed. `params.field` (default `amount_cents`) is shifted by `params.delta` (default `-100`). | Runs the call with the real values |
 | `stale_cache` | after | `ok`, with `params.field` (default `balance_cents`) replaced by `params.stale_value` (default `999999`) | Runs the call normally |
 | `schema_drift` | after | `ok`, with every `*_cents` field renamed without the suffix and `api_version: "v0-deprecated"` added | Runs the call normally |
+| `partial_response` | after | `ok`, with fields removed: `params.fields`, or by default `id` and every `*_id` field, from the object or from each item of a list | Runs the call normally |
+| `replica_lag` | after | `ok`, with a list response replaced by `[]`, as from a replica that has not caught up. Other responses are unchanged. | Runs the call normally |
+| `duplicate_delivery` | twice | The normal response of the first delivery | Runs the call twice, as when a proxy retries on its own. A call with an idempotency key is deduplicated the second time; one without a key commits twice, and the agent never sees the second result. |
 | `timeout` | before | Error `ETIMEDOUT: request timed out` | Nothing runs |
 | `retry_storm` | before | Error `ETIMEDOUT: transient failure`. The same as `timeout` with a different message. | Nothing runs |
 | `omission` | before | Error `tool returned empty response` | Nothing runs |
 | `rate_limit_429` | before | Error `429 Too Many Requests` | Nothing runs |
 | `auth_expiry` | before | Error `401 Unauthorized: token expired` | Nothing runs |
+| `phantom_success` | before | `ok`, with a well-formed success response: `params.result` if given, else one built from the tool's output schema and the call's arguments (`refund_id: "refund_0"`, `order_id` and `amount_cents` copied from the arguments, `status: "succeeded"`, `deduplicated: false`) | Nothing runs: the request was acknowledged and lost |
 
-`stale_cache` and `schema_drift` can target a write tool too. The write still commits, and only the response the agent sees is altered. A response that a fault makes violate the tool's output schema is recorded with its schema errors.
+The stage says what the world did. *Before*: nothing ran, whatever the agent saw. *After*: the call ran once and any change committed; only the response was altered. *Twice*: the call ran twice.
+
+`stale_cache`, `schema_drift`, and `partial_response` can target a write tool too. The write still commits, and only the response the agent sees is altered. A response that a fault makes violate the tool's output schema is recorded with its schema errors. `phantom_success` is the opposite case: the response is valid, and nothing happened. Only reading the state back tells the two apart, and `replica_lag` is the fault that defeats a read-back.
 
 Every fault decision is a deterministic function of the seed, the trial index, the tool, the call number, and the fault kind. The same seed always reproduces the same schedule.
 

@@ -77,7 +77,7 @@ Sources were read in October 2026.
 **How it injects faults:** each toxic has a `stream`. `upstream` affects client-to-server data, and `downstream` affects server-to-client data, so requests and responses can be broken separately. Each toxic also has a `toxicity`, the probability that it applies.
 
 **Lessons:**
-- **The direction of a fault matters.** In AgentCrucible the equivalent is whether a fault fires before the call runs (nothing commits) or after (the change commits and the response is lost or altered). [scenarios.md](scenarios.md) states this for every fault kind, and `test/faults.test.ts` asserts it against world state.
+- **The direction of a fault matters.** In AgentCrucible the equivalent is whether a fault fires before the call runs (nothing commits, even when the agent sees a success response), after (the change commits and the response is lost or altered), or around a call delivered twice. [scenarios.md](scenarios.md) states this for every fault kind, and `test/faults.test.ts` asserts it against world state.
 - **Probability is not reproducibility.** Toxiproxy's `toxicity` is a chance per connection. AgentCrucible's `probability` is a chance per call, resolved from the seed so a failure can be reproduced exactly. 0.4.0 also fixes a hashing flaw that made small `on_call_range` picks ignore most of the seed.
 - **Release practice.** Toxiproxy publishes binaries for each platform as release assets, with a changelog. AgentCrucible attaches the tested npm tarball to its release.
 

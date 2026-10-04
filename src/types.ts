@@ -27,6 +27,10 @@ export const FAULT_KINDS = [
   "auth_expiry",
   "stale_cache",
   "schema_drift",
+  "phantom_success",
+  "replica_lag",
+  "partial_response",
+  "duplicate_delivery",
 ] as const;
 
 export interface FaultSpec {

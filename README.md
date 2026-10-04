@@ -6,8 +6,9 @@ It finds the failure handling that ordinary tests miss:
 
 - a retry after a lost response that refunds the customer twice;
 - a workflow that resolves the ticket although the customer was never emailed;
-- "Done" when the committed state says otherwise;
-- a wrong number or id passed on from a bad response.
+- "Done" when the committed state says otherwise, including after a valid-looking success response for a write that never happened;
+- a wrong number or id passed on from a bad response;
+- an unkeyed write that a proxy delivered twice.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/ui-demo-dark.png">
@@ -19,7 +20,7 @@ It finds the failure handling that ordinary tests miss:
 Node.js 22.12 or later. AgentCrucible is not on the npm registry; install it from the release tarball:
 
 ```bash
-npm install https://github.com/skysssup/agentcrucible/releases/download/v1.0.0/agentcrucible-1.0.0.tgz
+npm install https://github.com/skysssup/agentcrucible/releases/download/v1.1.0/agentcrucible-1.1.0.tgz
 npx agentcrucible demo
 ```
 
@@ -68,7 +69,7 @@ npx agentcrucible ui
 created  agentcrucible.config.json
 created  scenarios/refund-lost-response.yaml
 created  agents/my-agent.mjs
-19 scenario file(s) valid
+24 scenario file(s) valid
   Verdict: SAFE_SUCCESS
 ```
 
@@ -90,7 +91,7 @@ export default async function myAgent(ctx) {
 }
 ```
 
-To test a model-backed agent, run your model loop inside the function: give `ctx.tools` to the model and send each tool call it makes through `ctx.callTool`. AgentCrucible ships no model adapter, so it never calls a model itself. Give the module to the CLI as a path:
+To test a model-backed agent, run your model loop inside the function: give `ctx.tools` to the model, send each tool call it makes through `ctx.callTool`, and pass `ctx.signal` to the model client so a trial that hits `--timeout` stops cleanly. AgentCrucible ships no model adapter, so it never calls a model itself. `--concurrency` runs several scenarios at once, with the same reports as a sequential run. Give the module to the CLI as a path:
 
 ```bash
 cd examples
@@ -102,7 +103,7 @@ payments/timeout-after-commit  world payments · agent careful-refund · seed se
   Verdict: SAFE_SUCCESS
 ```
 
-From code, call `runScenario({ scenario, agent, trials })`; [examples/custom-agent.mjs](examples/custom-agent.mjs) is a complete script. [docs/extending.md](docs/extending.md) covers the agent context, error codes, and extensions that add your own worlds, fault kinds, and agents.
+From code, call `runScenario({ scenario, agent, trials })`, or `runMatrix({ scenarios, agents, concurrency })` for several scenarios and agents at once; [examples/custom-agent.mjs](examples/custom-agent.mjs) is a complete script. [docs/extending.md](docs/extending.md) covers the agent context, error codes, and extensions that add your own worlds, fault kinds, and agents.
 
 ## Scenarios
 
@@ -138,7 +139,7 @@ npx agentcrucible check --scenario custom/order-confirmation
 npx agentcrucible run --scenario custom/order-confirmation --agent naive-retry
 ```
 
-`expect.effects` lists every change a correct run commits; each must appear exactly once, and any other change is reported. Scenarios can also combine worlds into one workflow, seed records, cap tool calls, declare several acceptable outcomes and recovery paths, check invariants after every call, and check the answer's amounts, ids, yes/no statements, and structured output. `check` holds each scenario to its `expected_verdicts`, so a scenario that grades nothing is caught. [docs/scenarios.md](docs/scenarios.md) is the full reference, and [docs/workflows.md](docs/workflows.md) walks through the multi-step workflows:
+`expect.effects` lists every change a correct run commits; each must appear exactly once, and any other change is reported. Scenarios can also combine worlds into one workflow, seed records, cap tool calls, declare several acceptable outcomes and recovery paths, check invariants after every call, and check the answer's amounts, ids, yes/no statements, and structured output. Fourteen fault kinds cover lost and altered responses, errors before and after the commit, a success response for a call that never ran, a read from a lagging replica, and a request delivered twice. `check` holds each scenario to its `expected_verdicts`, so a scenario that grades nothing is caught. [docs/scenarios.md](docs/scenarios.md) is the full reference, and [docs/workflows.md](docs/workflows.md) walks through the multi-step workflows:
 
 ```bash
 npx agentcrucible compare --scenario workflows/notification-outage --agents workflow-naive,workflow-reconcile,workflow-careful
@@ -166,7 +167,7 @@ Each trial gets one verdict; the most severe finding decides it, and a run of se
 
 ## Reports, replay, and baselines
 
-`run` writes a JSON report, an HTML timeline, and a JUnit file per scenario, plus an `index.html` for the run. The JSON report is the complete record, and three commands work from it:
+`run` writes a JSON report, an HTML timeline, and a JUnit file per scenario, plus an `index.html` and a Markdown `summary.md` for the run; `run --agents a,b` grades several agents in one run, with a scenario-by-agent table. The JSON report is the complete record, and three commands work from it:
 
 ```bash
 npx agentcrucible run --scenario workflows/refund-notify-resolve --agent workflow-reconcile --out reports
@@ -187,6 +188,8 @@ Reproduced: every call, state, and verdict matches the report.
 ```yaml
 - run: npx agentcrucible check
 - run: npx agentcrucible run --tag smoke --agent ./agents/my-agent.mjs --baseline agentcrucible-baseline.json --out reports
+- run: cat reports/summary.md >> "$GITHUB_STEP_SUMMARY"
+  if: always()
 - uses: actions/upload-artifact@v7
   if: always()
   with:
@@ -194,7 +197,7 @@ Reproduced: every call, state, and verdict matches the report.
     path: reports/
 ```
 
-Create the baseline once with `--save-baseline agentcrucible-baseline.json` and review changes to it like code. [docs/traces.md](docs/traces.md) covers reports, `inspect`, `replay`, and baselines.
+Create the baseline once with `--save-baseline agentcrucible-baseline.json` and review changes to it like code. [docs/traces.md](docs/traces.md) covers reports, `summary.md`, `inspect`, `replay`, and baselines.
 
 ## The UI
 
@@ -218,7 +221,7 @@ It loads nothing from the network, and its API answers only its own page. [docs/
 - [docs/traces.md](docs/traces.md): reports, `inspect`, `replay`, the HTML timeline, and baselines.
 - [docs/extending.md](docs/extending.md): agent modules and extensions.
 - [docs/ui.md](docs/ui.md): the local UI.
-- [docs/examples.md](docs/examples.md): six single-step examples with their evidence.
+- [docs/examples.md](docs/examples.md): eight single-step examples with their evidence.
 - [docs/stability.md](docs/stability.md): what 1.x keeps compatible.
 - [docs/related-work.md](docs/related-work.md): how this compares with τ-bench, AgentDojo, Inspect, Toxiproxy, Jepsen, and others.
 

@@ -22,6 +22,9 @@ describe("refund amount parsing in scripted agents", () => {
       task: "Refund $12.50 for order #4471",
       tools: [{ name: "create_refund", description: "refund", mutating: true, inputSchema: { type: "object" } }],
       history: [],
+      scenarioId: "test",
+      trialIndex: 0,
+      signal: new AbortController().signal,
       callTool: async (_tool, args) => {
         calls.push(args);
         return { ok: true, result: { refund_id: "re_1", amount_cents: 1250 } };

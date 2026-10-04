@@ -1,5 +1,5 @@
 import { pickInRange, unitRandom } from "./hash.js";
-import type { JsonSchema } from "./schema.js";
+import { sampleValue, type JsonSchema } from "./schema.js";
 import type { FaultSpec, ToolObservation } from "./types.js";
 
 export interface FaultInput {
@@ -9,16 +9,23 @@ export interface FaultInput {
   result: unknown;
   /** The scenario's params for this fault, already checked against `params`. */
   params: Record<string, unknown>;
+  /** The tool's output schema, when it declares one. */
+  outputSchema?: JsonSchema;
 }
+
+/** When a fault fires relative to the call: before it runs, after it ran, or after it ran twice. */
+export const FAULT_STAGES = ["before", "after", "twice"] as const;
+export type FaultStage = (typeof FAULT_STAGES)[number];
 
 /**
  * A kind of fault. With stage "before" the call never reaches the world, so nothing commits;
  * with stage "after" the world runs the call and the agent receives `apply`'s observation
- * instead of the real result.
+ * instead of the real result; with stage "twice" the world runs the call twice, as when a
+ * request is delivered more than once, and `apply` receives the first result.
  */
 export interface FaultDefinition {
   description: string;
-  stage: "before" | "after";
+  stage: FaultStage;
   /** JSON Schema for the scenario's `params`. Omit when the fault takes none. */
   params?: JsonSchema;
   apply(input: FaultInput): ToolObservation;
@@ -77,6 +84,33 @@ export const BUILTIN_FAULTS: Record<string, FaultDefinition> = {
       ...Object.fromEntries(Object.entries(result).map(([key, value]) => [key.endsWith("_cents") ? key.slice(0, -"_cents".length) : key, value])),
       api_version: "v0-deprecated",
     })),
+  },
+  phantom_success: {
+    description: "the call does not run, but the agent receives a well-formed success response built from the tool's output schema and arguments (or params.result)",
+    stage: "before",
+    params: { type: "object", properties: { result: { description: "The exact response to return instead of a synthesized one" } }, additionalProperties: false },
+    apply: ({ args, params, outputSchema }) => ({ ok: true, result: params.result !== undefined ? params.result : outputSchema ? sampleValue(outputSchema, args) : {} }),
+  },
+  replica_lag: {
+    description: "the call runs; a list response comes back empty, as from a replica that has not caught up (other responses are unchanged)",
+    stage: "after",
+    apply: ({ result }) => ({ ok: true, result: Array.isArray(result) ? [] : result }),
+  },
+  partial_response: {
+    description: "the call runs; the response loses params.fields (default: id and every *_id field), in each item for a list",
+    stage: "after",
+    params: { type: "object", properties: { fields: { type: "array", items: { type: "string", minLength: 1 }, minItems: 1 } }, additionalProperties: false },
+    apply: ({ result, params }) => {
+      const dropped = (key: string) => (Array.isArray(params.fields) ? (params.fields as string[]).includes(key) : key === "id" || key.endsWith("_id"));
+      const strip = (value: unknown) =>
+        typeof value === "object" && value !== null && !Array.isArray(value) ? Object.fromEntries(Object.entries(value).filter(([key]) => !dropped(key))) : value;
+      return { ok: true, result: Array.isArray(result) ? result.map(strip) : strip(result) };
+    },
+  },
+  duplicate_delivery: {
+    description: "the call reaches the service twice, as when a proxy retries; the agent sees the first response, and only a keyed call is deduplicated the second time",
+    stage: "twice",
+    apply: ({ result }) => ({ ok: true, result }),
   },
 };
 

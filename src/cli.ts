@@ -10,9 +10,10 @@ import { initProject } from "./init.js";
 import { formatTrialDetail, painter, printReport, readReportFile, shouldColor, worstTrial, writeHtmlReport, writeJsonReport, writeJUnitReport, writeRunIndex } from "./report.js";
 import { builtinRegistry, isModulePath, loadAgentModule, loadExtension, type Registry } from "./registry.js";
 import { replayReport } from "./replay.js";
-import { parseTrials, runScenario } from "./runner.js";
+import { MAX_CONCURRENCY, parseConcurrency, parseTimeout, parseTrials, runMatrix } from "./runner.js";
 import { bundledScenariosDir, findScenarios, loadAllScenarios, loadScenarioFile, scenarioFiles } from "./scenarios.js";
 import { VERDICTS, type RunReport, type Scenario, type Verdict } from "./types.js";
+import { writeRunSummary } from "./summary.js";
 import { startUi, type UiServer } from "./ui/server.js";
 import { atLeast } from "./verdict.js";
 import { VERSION } from "./version.js";
@@ -36,14 +37,17 @@ interface Command {
 }
 
 const SELECT: FlagSpec = { "--scenario": "value", "--tag": "value", "--config": "value" };
+/** Flags of every command that runs agents. */
+const RUNNING: FlagSpec = { "--trials": "value", "--timeout": "value", "--concurrency": "value", "--config": "value" };
 const COMMANDS: Record<string, Command> = {
   demo: { flags: { "--scenario": "value", "--out": "value", "--config": "value" }, run: cmdDemo },
-  list: { flags: { "--tag": "value", "--config": "value" }, run: cmdList },
+  list: { flags: { "--tag": "value", "--json": "boolean", "--config": "value" }, run: cmdList },
   run: {
     flags: {
       ...SELECT,
+      ...RUNNING,
       "--agent": "value",
-      "--trials": "value",
+      "--agents": "value",
       "--seed": "value",
       "--fuzz-call": "value",
       "--out": "value",
@@ -55,10 +59,10 @@ const COMMANDS: Record<string, Command> = {
     run: cmdRun,
   },
   compare: {
-    flags: { "--scenario": "value", "--agents": "value", "--trials": "value", "--seed": "value", "--json": "boolean", "--fail-on": "value", "--config": "value" },
+    flags: { ...RUNNING, "--scenario": "value", "--agents": "value", "--seed": "value", "--json": "boolean", "--fail-on": "value" },
     run: cmdCompare,
   },
-  check: { flags: { ...SELECT, "--trials": "value", "--json": "boolean" }, run: cmdCheck },
+  check: { flags: { ...SELECT, ...RUNNING, "--json": "boolean" }, run: cmdCheck },
   inspect: { flags: { "--trial": "value", "--call": "value", "--scenario": "value" }, positional: "report", run: cmdInspect },
   replay: { flags: { "--scenario": "value", "--json": "boolean", "--config": "value" }, positional: "report", run: cmdReplay },
   validate: { flags: { "--json": "boolean", "--config": "value" }, positional: "path", optional: true, run: cmdValidate },
@@ -67,9 +71,9 @@ const COMMANDS: Record<string, Command> = {
     run: cmdUi,
   },
   init: { flags: {}, run: cmdInit },
-  agents: { flags: { "--config": "value" }, run: cmdAgents },
-  worlds: { flags: { "--config": "value" }, run: cmdWorlds },
-  faults: { flags: { "--config": "value" }, run: cmdFaults },
+  agents: { flags: { "--json": "boolean", "--config": "value" }, run: cmdAgents },
+  worlds: { flags: { "--json": "boolean", "--config": "value" }, run: cmdWorlds },
+  faults: { flags: { "--json": "boolean", "--config": "value" }, run: cmdFaults },
   config: { flags: { "--config": "value" }, run: cmdConfig },
   examples: { flags: {}, run: () => (console.log(EXAMPLES), 0) },
   version: { flags: {}, run: () => (console.log(`agentcrucible ${VERSION}`), 0) },
@@ -188,6 +192,38 @@ function trials(flags: Flags, cfg: CrucibleConfig): number {
   }
 }
 
+function timeout(flags: Flags, cfg: CrucibleConfig): number | undefined {
+  const raw = str(flags, "--timeout");
+  if (raw === undefined) return cfg.timeoutMs;
+  try {
+    return parseTimeout(raw);
+  } catch (err) {
+    throw new UsageError(`--timeout: ${(err as Error).message}`);
+  }
+}
+
+function concurrency(flags: Flags, cfg: CrucibleConfig): number {
+  const raw = str(flags, "--concurrency");
+  if (raw === undefined) return cfg.concurrency ?? 1;
+  try {
+    return parseConcurrency(raw);
+  } catch (err) {
+    throw new UsageError(`--concurrency: ${(err as Error).message}`);
+  }
+}
+
+/** The agents of a comma-separated list, each a registered id or a module path, loaded into the registry. */
+async function resolveAgents(value: string, registry: Registry, from: string): Promise<{ registry: Registry; ids: string[] }> {
+  const ids: string[] = [];
+  for (const item of value.split(",").map((a) => a.trim()).filter(Boolean)) {
+    const resolved = await resolveAgent(item, registry, from);
+    registry = resolved.registry;
+    if (!ids.includes(resolved.id)) ids.push(resolved.id);
+  }
+  if (ids.length === 0) throw new UsageError(`${from} needs at least one agent`);
+  return { registry, ids };
+}
+
 function ensureWritableDir(dir: string): void {
   try {
     mkdirSync(dir, { recursive: true });
@@ -201,9 +237,17 @@ async function cmdRun(flags: Flags): Promise<number> {
   const ctx = await context(flags);
   const { cfg } = ctx;
   const agentFlag = str(flags, "--agent");
-  const { registry, id: agent } = await resolveAgent(agentFlag ?? cfg.agent ?? "naive-retry", ctx.registry, agentFlag === undefined && cfg.agent ? "config" : "--agent");
+  const agentsFlag = str(flags, "--agents");
+  if (agentFlag !== undefined && agentsFlag !== undefined) throw new UsageError("use --agent <id|path> for one agent or --agents a,b for several, not both");
+  const { registry, ids: agents } = await resolveAgents(
+    agentsFlag ?? agentFlag ?? cfg.agent ?? "naive-retry",
+    ctx.registry,
+    agentsFlag !== undefined ? "--agents" : agentFlag === undefined && cfg.agent ? "config" : "--agent"
+  );
   const trialCount = trials(flags, cfg);
   const threshold = failOn(flags, cfg);
+  const timeoutMs = timeout(flags, cfg);
+  const parallel = concurrency(flags, cfg);
   const seed = str(flags, "--seed") ?? cfg.seed;
   const out = str(flags, "--out") ?? cfg.out ?? ".agentcrucible/out";
   const asJson = flags["--json"] === true;
@@ -222,15 +266,26 @@ async function cmdRun(flags: Flags): Promise<number> {
   const scenarios = selectScenarios(flags, cfg, registry, cfg.defaultTag);
   ensureWritableDir(out);
 
-  const reports: RunReport[] = [];
-  for (const scenario of scenarios) {
-    const report = await runScenario({ scenario, agentId: agent, seed, trials: trialCount, fuzzCallRange, registry });
-    reports.push(report);
-    writeJsonReport(report, out);
-    writeHtmlReport(report, out);
-    writeJUnitReport(report, out, threshold);
-    if (!asJson) printReport(report);
-  }
+  // One agent writes flat into `out`, as before; several agents get a directory each, as the UI does.
+  const dirOf = (agent: string) => (agents.length === 1 ? undefined : agent);
+  const reports = await runMatrix({
+    scenarios,
+    agents,
+    seed,
+    trials: trialCount,
+    fuzzCallRange,
+    registry,
+    timeoutMs,
+    concurrency: parallel,
+    onReport: (report) => {
+      const dir = dirOf(report.agentId);
+      const target = dir ? join(out, encodeURIComponent(dir)) : out;
+      writeJsonReport(report, target);
+      writeHtmlReport(report, target);
+      writeJUnitReport(report, target, threshold);
+      if (!asJson) printReport(report);
+    },
+  });
   const log = asJson ? (line = "") => console.error(line) : (line = "") => console.log(line);
   const savePath = str(flags, "--save-baseline");
   if (savePath) {
@@ -239,15 +294,14 @@ async function cmdRun(flags: Flags): Promise<number> {
   }
   const failing = reports.filter((r) => atLeast(r.aggregateVerdict, threshold));
   const comparison = baseline ? compareBaseline(baseline, reports) : undefined;
-  writeRunIndex(
-    reports.map((report) => ({ report, ...(comparison ? { change: baselineChange(comparison, report, threshold) } : {}) })),
-    out,
-    `AgentCrucible run: ${reports.length === 1 ? reports[0].scenarioId : `${reports.length} scenarios`} (agent ${agent})`,
-    threshold
-  );
+  const entries = reports.map((report) => ({ report, dir: dirOf(report.agentId), ...(comparison ? { change: baselineChange(comparison, report, threshold) } : {}) }));
+  const title = `AgentCrucible run: ${scenarios.length === 1 ? scenarios[0].id : `${scenarios.length} scenarios`} (${agents.length === 1 ? `agent ${agents[0]}` : `agents ${agents.join(", ")}`})`;
+  writeRunIndex(entries, out, title, threshold);
+  writeRunSummary(entries, out, { title, failOn: threshold, ...(baselinePath ? { baselinePath } : {}) });
   if (asJson) console.log(JSON.stringify(reports.length === 1 ? reports[0] : reports, null, 2));
+  else if (agents.length > 1) printMatrix(reports, agents, threshold);
   else if (reports.length > 1) printSummary(reports, threshold);
-  if (!asJson) console.log(`Reports written to ${out}/ (index.html, *.report.json, *.report.html, *.junit.xml)`);
+  if (!asJson) console.log(`Reports written to ${out}/ (index.html, summary.md, ${agents.length > 1 ? "<agent>/" : ""}*.report.json, *.report.html, *.junit.xml)`);
 
   if (comparison && baselinePath) {
     writeFileSync(join(out, "baseline-comparison.json"), `${JSON.stringify(comparison, null, 2)}\n`);
@@ -265,10 +319,11 @@ async function cmdRun(flags: Flags): Promise<number> {
     return failed ? 2 : 0;
   }
   if (!asJson) {
+    const unit = agents.length > 1 ? "result" : "scenario";
     console.log(
       failing.length
-        ? `${failing.length} of ${reports.length} scenario(s) at or above --fail-on ${threshold}: exit 2`
-        : `No scenario at or above --fail-on ${threshold}: exit 0`
+        ? `${failing.length} of ${reports.length} ${unit}(s) at or above --fail-on ${threshold}: exit 2`
+        : `No ${unit} at or above --fail-on ${threshold}: exit 0`
     );
   }
   return failing.length ? 2 : 0;
@@ -307,17 +362,35 @@ function printSummary(reports: RunReport[], threshold: Verdict): void {
   console.log();
 }
 
+/** A scenario-by-agent table of verdicts; a result at or above the threshold is marked with "!". */
+function printMatrix(reports: RunReport[], agents: string[], threshold: Verdict): void {
+  const paint = painter(shouldColor(process.stdout));
+  const scenarios = [...new Set(reports.map((r) => r.scenarioId))];
+  const width = Math.max(...scenarios.map((s) => s.length));
+  const columns = agents.map((a) => Math.max(a.length, 16));
+  console.log(paint("bold", `Summary (${agents.length} agents)`));
+  console.log(`  ${"".padEnd(width)}  ${agents.map((a, i) => a.padEnd(columns[i])).join("  ")}`);
+  for (const scenario of scenarios) {
+    const cells = agents.map((agent, i) => {
+      const report = reports.find((r) => r.scenarioId === scenario && r.agentId === agent);
+      if (!report) return "".padEnd(columns[i]);
+      const mark = atLeast(report.aggregateVerdict, threshold) ? "!" : " ";
+      return paint(report.aggregateVerdict, `${mark}${report.aggregateVerdict}`.padEnd(columns[i]));
+    });
+    console.log(`  ${scenario.padEnd(width)}  ${cells.join("  ")}`);
+  }
+  console.log(`  ! at or above --fail-on ${threshold}`);
+  console.log();
+}
+
 async function cmdCompare(flags: Flags): Promise<number> {
   const ctx = await context(flags);
   let { registry } = ctx;
   const id = str(flags, "--scenario");
   if (!id) throw new UsageError("compare needs --scenario <id>");
-  const agents: string[] = [];
-  for (const value of (str(flags, "--agents") ?? "naive-retry,honest-stop,idempotent-retry,cross-checker").split(",").map((a) => a.trim()).filter(Boolean)) {
-    const resolved = await resolveAgent(value, registry);
-    registry = resolved.registry;
-    agents.push(resolved.id);
-  }
+  const resolved = await resolveAgents(str(flags, "--agents") ?? "naive-retry,honest-stop,idempotent-retry,cross-checker", registry, "--agents");
+  registry = resolved.registry;
+  const agents = resolved.ids;
   const scenarios = findScenarios({ id, root: scenarioRoots(ctx.cfg), registry });
   if (scenarios.length !== 1) {
     throw new UsageError(
@@ -330,10 +403,7 @@ async function cmdCompare(flags: Flags): Promise<number> {
   const trialCount = trials(flags, ctx.cfg);
   const threshold = failOn(flags, ctx.cfg);
   const seed = str(flags, "--seed") ?? ctx.cfg.seed ?? "compare";
-  const reports: RunReport[] = [];
-  for (const agent of agents) {
-    reports.push(await runScenario({ scenario, agentId: agent, seed, trials: trialCount, registry }));
-  }
+  const reports = await runMatrix({ scenarios: [scenario], agents, seed, trials: trialCount, registry, timeoutMs: timeout(flags, ctx.cfg), concurrency: concurrency(flags, ctx.cfg) });
   if (flags["--json"] === true) {
     console.log(JSON.stringify(reports, null, 2));
   } else {
@@ -354,16 +424,16 @@ async function cmdCheck(flags: Flags): Promise<number> {
   const { cfg, registry } = await context(flags);
   const scenarios = selectScenarios(flags, cfg, registry);
   const trialCount = str(flags, "--trials") === undefined ? CHECK_TRIALS : trials(flags, cfg);
-  const rows: Array<{ scenarioId: string; agentId: string; expected: Verdict; actual: Verdict; unexercisedFaults: number[]; ok: boolean }> = [];
-  for (const scenario of scenarios) {
-    for (const [agent, expected] of Object.entries(scenario.expectedVerdicts)) {
-      const report = await runScenario({ scenario, agentId: agent, trials: trialCount, registry });
-      const fired = new Set(report.trials.flatMap((t) => t.trace.calls.map((c) => c.faultIndex)));
-      const unexercisedFaults = scenario.faults.map((_, i) => i).filter((i) => !fired.has(i));
-      const actual = report.aggregateVerdict;
-      rows.push({ scenarioId: scenario.id, agentId: agent, expected, actual, unexercisedFaults, ok: actual === expected && unexercisedFaults.length === 0 });
-    }
-  }
+  const timeoutMs = timeout(flags, cfg);
+  const parallel = concurrency(flags, cfg);
+  const reports = await runMatrix({ scenarios, agents: (s) => Object.keys(s.expectedVerdicts), trials: trialCount, registry, timeoutMs, concurrency: parallel });
+  const rows = reports.map((report) => {
+    const expected = report.scenario.expectedVerdicts[report.agentId];
+    const fired = new Set(report.trials.flatMap((t) => t.trace.calls.map((c) => c.faultIndex)));
+    const unexercisedFaults = report.scenario.faults.map((_, i) => i).filter((i) => !fired.has(i));
+    const actual = report.aggregateVerdict;
+    return { scenarioId: report.scenarioId, agentId: report.agentId, expected, actual, unexercisedFaults, ok: actual === expected && unexercisedFaults.length === 0 };
+  });
   const failed = rows.filter((r) => !r.ok);
   if (flags["--json"] === true) {
     console.log(JSON.stringify(rows, null, 2));
@@ -428,6 +498,26 @@ async function cmdList(flags: Flags): Promise<number> {
   const tag = str(flags, "--tag");
   const root = scenarioRoots(cfg);
   const scenarios = tag ? findScenarios({ tag, root, registry }) : loadAllScenarios(root, registry);
+  if (flags["--json"] === true) {
+    console.log(
+      JSON.stringify(
+        scenarios.map((s) => ({
+          id: s.id,
+          worlds: s.worlds,
+          tags: s.tags,
+          description: s.description,
+          task: s.task,
+          faults: s.faults,
+          hasExpect: s.expect !== undefined,
+          expectedVerdicts: s.expectedVerdicts,
+          source: s.source ?? null,
+        })),
+        null,
+        2
+      )
+    );
+    return 0;
+  }
   for (const s of scenarios) {
     console.log(`${s.id.padEnd(34)} world=${s.worlds.join("+").padEnd(10)} [${s.tags.join(", ")}]`);
     console.log(`  ${s.description.split(/(?<=\.)\s/)[0]}`);
@@ -439,6 +529,10 @@ async function cmdList(flags: Flags): Promise<number> {
 
 async function cmdAgents(flags: Flags): Promise<number> {
   const { registry } = await context(flags);
+  if (flags["--json"] === true) {
+    console.log(JSON.stringify([...registry.agents].map(([id, e]) => ({ id, description: e.value.description, source: e.source })), null, 2));
+    return 0;
+  }
   const width = Math.max(...[...registry.agents.keys()].map((a) => a.length));
   for (const [id, entry] of registry.agents) {
     console.log(`${id.padEnd(width)}  ${entry.value.description || "(no description)"}${entry.source === "built-in" ? "" : `  [${entry.source}]`}`);
@@ -448,6 +542,19 @@ async function cmdAgents(flags: Flags): Promise<number> {
 
 async function cmdWorlds(flags: Flags): Promise<number> {
   const { registry } = await context(flags);
+  if (flags["--json"] === true) {
+    console.log(
+      JSON.stringify(
+        [...registry.worlds].map(([name, e]) => {
+          const world = e.value();
+          return { name, description: world.description, source: e.source, tools: world.tools, records: world.recordFields };
+        }),
+        null,
+        2
+      )
+    );
+    return 0;
+  }
   for (const [name, entry] of registry.worlds) {
     const world = entry.value();
     console.log(`${name}${entry.source === "built-in" ? "" : `  [${entry.source}]`}: ${world.description}`);
@@ -460,14 +567,18 @@ async function cmdWorlds(flags: Flags): Promise<number> {
 
 async function cmdFaults(flags: Flags): Promise<number> {
   const { registry } = await context(flags);
+  if (flags["--json"] === true) {
+    console.log(JSON.stringify([...registry.faults].map(([kind, e]) => ({ kind, stage: e.value.stage, description: e.value.description, params: e.value.params ?? null, source: e.source })), null, 2));
+    return 0;
+  }
   const width = Math.max(...[...registry.faults.keys()].map((k) => k.length));
   for (const [kind, entry] of registry.faults) {
     const params = Object.keys(entry.value.params?.properties ?? {});
     console.log(
-      `${kind.padEnd(width)}  ${entry.value.stage === "before" ? "before" : "after "}  ${entry.value.description}${params.length ? ` (params: ${params.join(", ")})` : ""}${entry.source === "built-in" ? "" : `  [${entry.source}]`}`
+      `${kind.padEnd(width)}  ${entry.value.stage.padEnd(6)}  ${entry.value.description}${params.length ? ` (params: ${params.join(", ")})` : ""}${entry.source === "built-in" ? "" : `  [${entry.source}]`}`
     );
   }
-  console.log("\nbefore: the call does not run. after: the call runs, then the agent sees a changed response.");
+  console.log("\nbefore: the call does not run. after: the call runs, then the agent sees a changed response. twice: the call runs twice; the agent sees the first response.");
   return 0;
 }
 
@@ -522,6 +633,8 @@ async function cmdUi(flags: Flags): Promise<number> {
     baselinePath: str(flags, "--baseline") ?? "agentcrucible-baseline.json",
     registry,
     failOn: failOn(flags, ctx.cfg),
+    timeoutMs: ctx.cfg.timeoutMs,
+    concurrency: ctx.cfg.concurrency,
   };
   const ports = rawPort === undefined ? [...Array.from({ length: 10 }, (_, i) => UI_PORT + i), 0] : [Number(rawPort)];
   let server: UiServer | undefined;
@@ -589,8 +702,8 @@ Usage: agentcrucible <command> [options]
 
 Commands:
   demo        Run the scenario's expected agents side by side and explain each verdict
-  list        List scenarios (--tag <tag>)
-  run         Run one agent against scenarios and write reports
+  list        List scenarios (--tag <tag>, --json)
+  run         Run one or more agents against scenarios and write reports
   compare     Run several agents on one scenario with the same seed
   check       Verify each scenario's expected_verdicts against the registered agents
   inspect     Show a saved report call by call (inspect <report.json> [--trial n] [--call call_2])
@@ -598,9 +711,9 @@ Commands:
   validate    Check scenario files without running them (validate [file or directory])
   ui          Browse, run, compare, and edit scenarios in a local web UI
   init        Write a starter config, scenario, and agent into the current directory
-  agents      List agents (built-in and from extensions)
-  worlds      List mock worlds with their tools and record kinds
-  faults      List fault kinds
+  agents      List agents (built-in and from extensions; --json)
+  worlds      List mock worlds with their tools and record kinds (--json)
+  faults      List fault kinds (--json)
   config      Show the config file in use
   examples    Print example commands
   version     Print the version
@@ -610,18 +723,21 @@ run options:
   --tag <tag>            All scenarios with this tag
   --agent <id|path>      Registered agent, or a module whose default export is your agent
                          (default: config "agent" or naive-retry)
+  --agents a,b,./x.mjs   Several agents: every scenario runs against each, with reports in <out>/<agent>/
   --trials <n>           Trials per scenario, 1-10000 (default 1)
   --seed <text>          Seed for fault selection (default: seed-<scenario id>)
   --fuzz-call <a-b>      Fault one seeded call index in a..b per trial instead of the scenario's schedule
-  --out <dir>            Report directory (default .agentcrucible/out)
-  --json                 Print the report as JSON (an array when several scenarios ran)
+  --timeout <ms>         Fail the run when a trial takes longer; the agent's ctx.signal aborts at the limit
+  --concurrency <n>      Scenario-and-agent runs in flight at once, 1-${MAX_CONCURRENCY} (default 1; results do not change)
+  --out <dir>            Report directory (default .agentcrucible/out); also gets index.html and summary.md
+  --json                 Print the report as JSON (an array when several scenarios or agents ran)
   --fail-on <verdict>    Exit 2 when a verdict is at least this severe (default SILENT_FAILURE)
   --save-baseline <file> Write the results as a baseline to compare later runs with
   --baseline <file>      Compare with a baseline; exit 2 only for regressions and new failing scenarios
   --config <path>        Use this config file instead of searching the current directory
 
-compare options: --scenario, --agents a,b,./agent.mjs, --trials, --seed, --json, --fail-on, --config
-check options:   --scenario, --tag, --trials (default ${CHECK_TRIALS}), --json, --config
+compare options: --scenario, --agents a,b,./agent.mjs, --trials, --seed, --timeout, --concurrency, --json, --fail-on, --config
+check options:   --scenario, --tag, --trials (default ${CHECK_TRIALS}), --timeout, --concurrency, --json, --config
 demo options:    --scenario (default ${DEMO_SCENARIO}), --out <dir> to also write reports, --config
 inspect options: --trial <n> (default: the worst trial), --call <id>, --scenario <id> for multi-report files
 replay options:  --scenario <id>, --json, --config (to load extension worlds and faults)
@@ -632,10 +748,9 @@ ui options:      --port <n> (default ${UI_PORT}, or the next free one), --host <
 
 Verdicts, most to least severe: ${VERDICTS.join(", ")}
 
-Exit status: 0 ok; 1 usage, config, scenario, or extension error (validate: a file with errors);
-2 a verdict at or above --fail-on
-(run, compare), a regression against --baseline (run), an expected verdict that did not hold
-(check, demo), or a replay that did not reproduce (replay).`;
+Exit status: 0 ok; 1 usage, config, scenario, extension, or agent error, including a trial past --timeout
+(validate: a file with errors); 2 a verdict at or above --fail-on (run, compare), a regression against
+--baseline (run), an expected verdict that did not hold (check, demo), or a replay that did not reproduce (replay).`;
 
 const EXAMPLES = `# Five agents on the lost-response refund, explained
 agentcrucible demo
@@ -655,6 +770,10 @@ agentcrucible compare --scenario database/silent-wrong-balance --agents gullible
 
 # Your own agent module (default export: async (ctx) => answer)
 agentcrucible run --scenario payments/timeout-after-commit --agent ./my-agent.mjs
+
+# Every smoke scenario against three agents at once, four runs in flight, then the Markdown summary
+agentcrucible run --tag smoke --agents naive-retry,cross-checker,./my-agent.mjs --concurrency 4 --out reports
+cat reports/summary.md
 
 # Save a baseline, then fail CI only when a verdict gets worse
 agentcrucible run --tag smoke --agent cross-checker --save-baseline baseline.json

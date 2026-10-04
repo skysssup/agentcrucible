@@ -19,7 +19,7 @@ AgentCrucible follows [semantic versioning](https://semver.org/) from 1.0.0. A b
 These may change in any minor release:
 
 - Terminal output that is not `--json`: wording, layout, and colors.
-- The HTML report, the run index, and the JUnit test-case text.
+- The HTML report, the run index, the Markdown summary, and the JUnit test-case text.
 - The local UI and the HTTP API behind it, which only its own page uses.
 - The wording of verdict reasons and evidence summaries.
 - Anything not exported from the package entry point (`dist/` internals).

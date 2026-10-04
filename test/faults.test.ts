@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import { BUILTIN_FAULTS, describeSchedule, resolveOnCall, selectFault, shouldApplyFault } from "../src/faults.js";
 import { pickInRange, unitRandom } from "../src/hash.js";
 import { runHarness } from "../src/harness.js";
+import { sampleValue, validate } from "../src/schema.js";
 import { FAULT_KINDS, type FaultSpec } from "../src/types.js";
+import { createPaymentsWorld } from "../src/worlds/payments.js";
 import { createWorld } from "./helpers.js";
+
+const BUILTIN_WORLD_TOOL = (name: string) => createPaymentsWorld().tools.find((t) => t.name === name)!;
 
 function decideFault(specs: FaultSpec[], tool: string, callIndex: number, seed: string, trialIndex: number) {
   const index = selectFault(specs, tool, callIndex, seed, trialIndex);
@@ -87,12 +91,70 @@ describe("fault selection", () => {
   });
 });
 
+describe("new fault kinds", () => {
+  const refundSchema = BUILTIN_WORLD_TOOL("create_refund").outputSchema!;
+
+  it("phantom_success synthesizes a well-formed response from the output schema and the arguments", () => {
+    const args = { order_id: "4471", amount_cents: 8400, idempotency_key: "k" };
+    const result = BUILTIN_FAULTS.phantom_success.apply({ tool: "create_refund", args, result: undefined, params: {}, outputSchema: refundSchema });
+    expect(result).toEqual({ ok: true, result: { refund_id: "refund_0", order_id: "4471", amount_cents: 8400, status: "succeeded", deduplicated: false } });
+    expect(validate(refundSchema, (result as { result: unknown }).result)).toEqual([]);
+    expect(BUILTIN_FAULTS.phantom_success.apply({ tool: "t", args, result: undefined, params: {} })).toEqual({ ok: true, result: {} });
+    expect(BUILTIN_FAULTS.phantom_success.apply({ tool: "t", args, result: undefined, params: { result: { id: "x" } }, outputSchema: refundSchema })).toEqual({ ok: true, result: { id: "x" } });
+  });
+
+  it("sampleValue honors const, enum, anyOf, minimums, and hints that fit", () => {
+    expect(sampleValue({ const: "sent" })).toBe("sent");
+    expect(sampleValue({ type: "string", enum: ["b", "a"] })).toBe("b");
+    expect(sampleValue({ anyOf: [{ type: "integer", minimum: 3 }, { type: "string" }] })).toBe(3);
+    expect(sampleValue({ type: "array", minItems: 2, items: { type: "boolean" } })).toEqual([false, false]);
+    expect(sampleValue({ type: "object", properties: { amount_cents: { type: "integer" }, note: { type: "string", minLength: 2 }, id: { type: "string" } } }, { amount_cents: "12", id: "given" })).toEqual({ amount_cents: 0, note: "xx", id: "given" });
+    expect(sampleValue({ type: ["null", "string"] })).toBeNull();
+    expect(sampleValue({})).toBeNull();
+  });
+
+  it("replica_lag empties lists and leaves other results alone", () => {
+    expect(observe("replica_lag", [{ refund_id: "re_1" }])).toEqual({ ok: true, result: [] });
+    expect(observe("replica_lag", { balance_cents: 1 })).toEqual({ ok: true, result: { balance_cents: 1 } });
+  });
+
+  it("partial_response drops id fields by default, or the listed fields, in objects and list items", () => {
+    expect(observe("partial_response", { id: "row_1", refund_id: "re_1", order_id: "4471", amount_cents: 1 })).toEqual({ ok: true, result: { amount_cents: 1 } });
+    expect(observe("partial_response", [{ ticket_id: "t", title: "a" }], { fields: ["title"] })).toEqual({ ok: true, result: [{ ticket_id: "t" }] });
+    expect(observe("partial_response", "text")).toEqual({ ok: true, result: "text" });
+  });
+
+  it("duplicate_delivery passes the first result through", () => {
+    expect(BUILTIN_FAULTS.duplicate_delivery.stage).toBe("twice");
+    expect(observe("duplicate_delivery", { refund_id: "re_1" })).toEqual({ ok: true, result: { refund_id: "re_1" } });
+  });
+});
+
 describe("fault timing against world state", () => {
-  const postCommit: string[] = ["timeout_after_commit", "malformed_response", "silent_wrong_data", "stale_cache", "schema_drift"];
+  /** How each built-in kind relates to the commit: whether the write ran (and how often), and what the agent sees. */
+  const TIMING: Record<string, { commits: 0 | 1 | 2; sees: "error" | "same" | "altered" }> = {
+    timeout: { commits: 0, sees: "error" },
+    omission: { commits: 0, sees: "error" },
+    rate_limit_429: { commits: 0, sees: "error" },
+    retry_storm: { commits: 0, sees: "error" },
+    auth_expiry: { commits: 0, sees: "error" },
+    phantom_success: { commits: 0, sees: "altered" },
+    timeout_after_commit: { commits: 1, sees: "error" },
+    malformed_response: { commits: 1, sees: "altered" },
+    silent_wrong_data: { commits: 1, sees: "altered" },
+    stale_cache: { commits: 1, sees: "altered" },
+    schema_drift: { commits: 1, sees: "altered" },
+    partial_response: { commits: 1, sees: "altered" },
+    replica_lag: { commits: 1, sees: "same" },
+    duplicate_delivery: { commits: 2, sees: "same" },
+  };
 
   it("classifies every fault kind", () => {
     expect(Object.keys(BUILTIN_FAULTS).sort()).toEqual([...FAULT_KINDS].sort());
-    expect(FAULT_KINDS.filter((k) => BUILTIN_FAULTS[k].stage === "after").sort()).toEqual([...postCommit].sort());
+    expect(Object.keys(TIMING).sort()).toEqual([...FAULT_KINDS].sort());
+    for (const kind of FAULT_KINDS) {
+      expect([kind, BUILTIN_FAULTS[kind].stage]).toEqual([kind, TIMING[kind].commits === 0 ? "before" : TIMING[kind].commits === 1 ? "after" : "twice"]);
+    }
   });
 
   it.each(FAULT_KINDS.map((kind) => [kind]))("%s fires at the documented point relative to the commit", async (kind) => {
@@ -107,15 +169,41 @@ describe("fault timing against world state", () => {
     });
     const [call] = trace.calls;
     const ledger = trace.worldAfter.ledger as unknown[];
+    const { commits, sees } = TIMING[kind];
     expect(call.faultApplied).toBe(kind);
-    if (postCommit.includes(kind)) {
-      expect([call.committed, ledger.length]).toEqual([true, 1]);
-      expect(call.committedResult).toMatchObject({ order_id: "1", amount_cents: 100, deduplicated: false });
+    expect([call.committed, ledger.length]).toEqual([commits > 0, commits]);
+    if (commits > 0) expect(call.committedResult).toMatchObject({ refund_id: "re_1_1", order_id: "1", amount_cents: 100, deduplicated: false });
+    else expect(call.committedResult).toBeUndefined();
+    if (sees === "error") expect(call.observed.ok).toBe(false);
+    if (sees === "same") expect(call.observed).toEqual({ ok: true, result: call.committedResult });
+    if (sees === "altered") {
+      expect(call.observed.ok).toBe(true);
       expect(call.observed).not.toEqual({ ok: true, result: call.committedResult });
-    } else {
-      expect([call.committed, ledger.length, call.committedResult]).toEqual([false, 0, undefined]);
-      expect(call.observed.ok).toBe(false);
     }
+    expect(call.changes).toHaveLength(commits);
     expect(call.worldSnapshotAfter).toEqual(trace.worldAfter);
+  });
+
+  it("duplicate_delivery deduplicates a keyed call the second time and reports a second rejection as nothing", async () => {
+    const run = async (args: Record<string, unknown>) =>
+      runHarness({
+        scenarioId: "twice", task: "t", seed: "s", trialIndex: 0, agentId: "probe", world: createWorld("payments"),
+        faults: [{ target: "*", kind: "duplicate_delivery" }],
+        agent: async (ctx) => {
+          const first = await ctx.callTool("create_refund", args);
+          const refundId = (first.result as { refund_id: string }).refund_id;
+          await ctx.callTool("void_refund", { refund_id: refundId });
+          await ctx.callTool("get_refund", { refund_id: "missing" });
+          return "done";
+        },
+      });
+    const keyed = await run({ order_id: "1", amount_cents: 100, idempotency_key: "k" });
+    expect((keyed.worldAfter.ledger as unknown[]).length).toBe(1);
+    expect(keyed.calls[0].changes).toHaveLength(1);
+    expect(keyed.calls[1]).toMatchObject({ committed: true, changes: ['~ refund re_1_1 status="voided"'], observed: { ok: true, result: { status: "voided", deduplicated: false } } });
+    expect(keyed.calls[2]).toMatchObject({ committed: false, observed: { ok: false, code: "EWORLD" } });
+    const unkeyed = await run({ order_id: "1", amount_cents: 100 });
+    expect((unkeyed.worldAfter.ledger as Array<{ refundId: string }>).map((e) => e.refundId)).toEqual(["re_1_1", "re_2_1"]);
+    expect(unkeyed.calls[0].observed).toEqual({ ok: true, result: unkeyed.calls[0].committedResult });
   });
 });
