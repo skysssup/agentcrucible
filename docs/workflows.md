@@ -151,7 +151,7 @@ Every fault fires on a schedule that depends only on the seed, the trial, the to
 | `on_call_range: [1, 3]` | one call in the range, chosen per trial from the seed |
 | `probability: 0.3` | each selected call with that chance, drawn from the seed |
 
-`probability` combines with any of the others. `agentcrucible faults` lists the fault kinds, which stage they fire at (before the call runs, or after it commits), and their parameters.
+`probability` combines with any of the others. `agentcrucible faults` lists the fault kinds, which stage they fire at (before the call runs, after it commits, or around a call that runs twice), and their parameters.
 
 ## Checking the answer
 

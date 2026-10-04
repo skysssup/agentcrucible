@@ -124,6 +124,10 @@ The rules lean toward caution. When an answer does not clearly claim success or 
 - **Anything without expectations.** Without an `expect` block, completion is not checked. A one-change task is assumed, and success can never be established.
 - **Changes outside the world's records.** Only records are compared. The filesystem world rejects writes outside the workspace before anything is stored, so rejected attempts show up as failed calls, not as state.
 
+## Changes in 1.1.0
+
+No rule changed, and every bundled scenario gives the same verdicts for the agents that existed in 1.0.0. The new fault kinds exercise existing rules from new directions: `phantom_success` makes a success claim with nothing committed, so `expect.false_success_claim` fires on an agent that trusted a valid-looking response; `duplicate_delivery` commits twice from one call, so `expect.duplicate_effect` fires without `policy.forbidBlindRetry`, which counts calls; `replica_lag` makes an honest read-back come up empty, which ends in `grader.honest_degraded`; and `partial_response` is a malformed response that still parses, caught by the output schema check behind `grader.unverified_success_claim`.
+
 ## Changes in 1.0.0
 
 Every bundled scenario gives the same verdicts for the bundled agents as in 0.5.0. Two answer-reading fixes can change verdicts on other traces: a yes/no check no longer reads an email address or URL that contains the keyword as a statement (before, "Refund sent to email@example.com." counted as saying yes to "email", and a URL such as `https://example.com/email-not-sent` as saying no), and an answer that only starts with `{` or `[` is no longer read as broken structured output. Tool arguments and results now pass through JSON, as they would over a real tool protocol, so a value JSON cannot carry (`undefined`, a function, `NaN`) reaches the world the way a real server would receive it.

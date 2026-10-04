@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { parseTrials } from "./runner.js";
+import { parseConcurrency, parseTimeout, parseTrials } from "./runner.js";
 import { VERDICTS, type Verdict } from "./types.js";
 
 export interface CrucibleConfig {
@@ -21,6 +21,10 @@ export interface CrucibleConfig {
   failOn?: Verdict;
   /** Modules that export worlds, faults, or agents, relative to the working directory. */
   extensions?: string[];
+  /** Milliseconds each trial may take before the run fails with an error. */
+  timeoutMs?: number;
+  /** Scenario-and-agent runs in flight at once (default 1). */
+  concurrency?: number;
 }
 
 export const CONFIG_FILES = [
@@ -33,7 +37,7 @@ export const CONFIG_FILES = [
   ".agentcrucible/config.yml",
 ];
 
-const KEYS = ["agent", "trials", "seed", "out", "scenarioDirs", "defaultTag", "failOn", "extensions"];
+const KEYS = ["agent", "trials", "seed", "out", "scenarioDirs", "defaultTag", "failOn", "extensions", "timeoutMs", "concurrency"];
 
 /** The config file in `cwd`, or null. More than one candidate is an error. */
 export function findConfigPath(cwd = process.cwd()): string | null {
@@ -69,6 +73,15 @@ export function parseConfigText(text: string, pathHint = "config"): CrucibleConf
     if (typeof cfg.trials !== "number") fail("trials must be a number");
     try {
       parseTrials(cfg.trials);
+    } catch (err) {
+      fail((err as Error).message);
+    }
+  }
+  for (const [key, parse] of [["timeoutMs", parseTimeout], ["concurrency", parseConcurrency]] as const) {
+    if (cfg[key] === undefined) continue;
+    if (typeof cfg[key] !== "number") fail(`${key} must be a number`);
+    try {
+      parse(cfg[key]);
     } catch (err) {
       fail((err as Error).message);
     }

@@ -11,7 +11,7 @@ import { renderReportHtml } from "../html.js";
 import type { Registry } from "../registry.js";
 import { replayReport } from "../replay.js";
 import { readReportFile, writeHtmlReport, writeJsonReport, writeJUnitReport } from "../report.js";
-import { parseTrials, runScenario } from "../runner.js";
+import { parseTrials, runMatrix } from "../runner.js";
 import { loadAllScenarios, parseScenario } from "../scenarios.js";
 import { VERDICTS, type RunReport, type Scenario, type Verdict } from "../types.js";
 import { VERSION } from "../version.js";
@@ -33,6 +33,10 @@ export interface UiOptions {
   baselinePath: string;
   registry: Registry;
   failOn: Verdict;
+  /** Milliseconds each trial may take; a run past it fails with an error. */
+  timeoutMs?: number;
+  /** Scenario-and-agent runs in flight at once (default 1). */
+  concurrency?: number;
 }
 
 export interface UiServer {
@@ -158,13 +162,16 @@ export async function startUi(opts: UiOptions): Promise<UiServer> {
         if (!agents && Object.keys(scenario.expectedVerdicts).length === 0) throw new HttpError(400, `${scenario.id} lists no expected agents; choose agents to run`);
       }
       const startedAt = new Date().toISOString();
-      const results: ReportSummary[] = [];
-      for (const scenario of chosen) {
-        for (const agentId of agents ?? Object.keys(scenario.expectedVerdicts)) {
-          const r = await runScenario({ scenario, agentId, trials, seed, registry: opts.registry });
-          results.push({ key: remember(r), ...reportSummary(r), expected: scenario.expectedVerdicts[agentId] ?? null });
-        }
-      }
+      const reports = await runMatrix({
+        scenarios: chosen,
+        agents: agents ?? ((s) => Object.keys(s.expectedVerdicts)),
+        trials,
+        seed,
+        registry: opts.registry,
+        timeoutMs: opts.timeoutMs,
+        concurrency: opts.concurrency,
+      });
+      const results: ReportSummary[] = reports.map((r) => ({ key: remember(r), ...reportSummary(r), expected: r.scenario.expectedVerdicts[r.agentId] ?? null }));
       const run: RunRecord = { runId: `run-${nextRun++}`, startedAt, scenarios: chosen.map((s) => s.id), agents: agents ?? null, trials, seed: seed ?? null, draft: input.text !== undefined, results };
       runs.unshift(run);
       runs.length = Math.min(runs.length, RUN_LIMIT);

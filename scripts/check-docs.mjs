@@ -34,6 +34,13 @@ for (const doc of DOCS) {
         cpSync(join(root, dir), cwd, { recursive: true });
         continue;
       }
+      if (line.startsWith("cat ")) {
+        // The file a previous command in the block wrote, shown as part of the block's output.
+        output += readFileSync(join(cwd, line.slice(4).trim()), "utf8");
+        checked++;
+        commands++;
+        continue;
+      }
       if (!isCommand(line)) continue;
       const args = line.replace(/^(npx )?agentcrucible |^node dist\/cli\.js /, "").match(/"[^"]*"|'[^']*'|\S+/g).map((a) => a.replace(/^["']|["']$/g, ""));
       const r = spawnSync(process.execPath, [cli, ...args], { cwd, encoding: "utf8", env: { ...process.env, NO_COLOR: "1" } });

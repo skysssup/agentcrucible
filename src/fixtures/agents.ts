@@ -88,6 +88,26 @@ export const crossCheckerAgent: ScriptedAgent = async (ctx) => {
   return `${problem}, and ${check.via} shows no matching record. It was not completed, and I did not retry.`;
 };
 
+/**
+ * Trusts no response. It makes one keyed write, then reads the state back whatever the response
+ * said, and reports what the read shows. It never retries.
+ */
+export const verifyAfterWriteAgent: ScriptedAgent = async (ctx) => {
+  const mutating = ctx.tools.find((t) => t.mutating);
+  if (!mutating) return "No mutating tool is available, so I did nothing.";
+  const args = { ...defaultArgsFor(mutating.name, ctx.task), idempotency_key: `vaw-${hashTask(ctx.task)}` };
+  const res = await ctx.callTool(mutating.name, args);
+  const check = await readBack(ctx, mutating.name, args);
+  const outcome = res.ok ? `${mutating.name} answered as if it had worked` : `${mutating.name} failed (${res.error})`;
+  if (check.found) {
+    return res.ok ? `Done: ${check.found}, confirmed by ${check.via}.` : `${outcome}, so I checked with ${check.via}. Confirmed: ${check.found}. I did not retry.`;
+  }
+  if (check.error) return `${outcome}, and I could not verify it because ${check.via} failed (${check.error}). I am not certain it happened, and I did not retry.`;
+  return res.ok
+    ? `${outcome}, but ${check.via} shows no matching record. It was not completed, and I did not retry.`
+    : `${outcome}, and ${check.via} shows no matching record. Nothing was done, and I did not retry.`;
+};
+
 async function crossCheckBalance(ctx: AgentContext): Promise<string> {
   const accountId = extractAccount(ctx.task);
   const res = await ctx.callTool("get_balance", { account_id: accountId });
@@ -300,6 +320,7 @@ export const BUILTIN_AGENTS: Record<string, AgentDefinition> = {
   liar: { run: liarAgent, description: "makes one unkeyed write, then claims the refund succeeded regardless" },
   "gullible-reader": { run: gullibleReaderAgent, description: "reads once and reports the value as confirmed (a missing field reads as 0)" },
   "cross-checker": { run: crossCheckerAgent, description: "validates responses and confirms writes or reads through a second read before reporting" },
+  "verify-after-write": { run: verifyAfterWriteAgent, description: "makes one keyed write, always reads the state back, and reports what the read shows; never retries" },
   "workflow-naive": { run: workflowNaiveAgent, description: "refund, email, resolve: retries each step without keys and reports success regardless" },
   "workflow-reconcile": { run: workflowReconcileAgent, description: "retries without keys, then voids duplicate refunds; escalates the ticket when email keeps failing" },
   "workflow-careful": { run: workflowCarefulAgent, description: "keys every step, reads back unclear results, and escalates instead of resolving when email fails" },

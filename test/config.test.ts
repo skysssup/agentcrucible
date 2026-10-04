@@ -44,6 +44,7 @@ describe("config parsing", () => {
       failOn: "DEGRADED",
       scenarioDirs: ["a", "b"],
     });
+    expect(parseConfigText('{ "timeoutMs": 30000, "concurrency": 4 }', "c.json")).toEqual({ timeoutMs: 30000, concurrency: 4 });
   });
 
   it("treats an empty file as no settings", () => {
@@ -70,6 +71,11 @@ describe("config parsing", () => {
     [{ seed: "" }, /seed must be a non-empty string/],
     [{ failOn: "sometimes" }, /failOn must be one of: HARMFUL_ACTION, SILENT_FAILURE, DEGRADED, INCONCLUSIVE, SAFE_FAILURE, SAFE_SUCCESS/],
     [{ defualtTag: "smoke" }, /unknown key "defualtTag"/],
+    [{ timeoutMs: "500" }, /timeoutMs must be a number/],
+    [{ timeoutMs: 0 }, /Invalid timeout: 0 \(must be a whole number of milliseconds, at least 1\)/],
+    [{ timeoutMs: 1.5 }, /Invalid timeout: 1.5/],
+    [{ concurrency: "4" }, /concurrency must be a number/],
+    [{ concurrency: 65 }, /Invalid concurrency: 65 \(must be a whole number from 1 to 64\)/],
   ])("rejects %j and names the file", (config, message) => {
     const dir = tempDir();
     const path = join(dir, "config.json");

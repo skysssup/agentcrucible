@@ -175,6 +175,10 @@ function relTime(iso: string | undefined, now = Date.now()): string {
   return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+function stageLabel(stage: string): string {
+  return stage === "after" ? "after the call runs" : stage === "twice" ? "the call runs twice" : "before the call runs";
+}
+
 function worldIcon(world: string, size = 16): string {
   const name: IconName = ({ payments: "card", email: "mail", database: "database", tickets: "ticket", filesystem: "folder" } as Record<string, IconName>)[world] ?? "cube";
   return icon(name, size);
@@ -509,7 +513,7 @@ export function scenarioView(meta: Meta, d: ScenarioDetail): string {
             ? `<ul class="fault-list">${d.faults
                 .map((text, i) => {
                   const def = meta.faults.find((f) => f.kind === kinds[i]?.kind);
-                  return `<li><span class="fault-icon">${icon("zap", 15)}</span><div><code>${esc(text)}</code>${def ? `<p>${esc(def.description)}</p>` : ""}</div>${def ? `<span class="stage-pill">${def.stage === "after" ? "after the call runs" : "before the call runs"}</span>` : ""}</li>`;
+                  return `<li><span class="fault-icon">${icon("zap", 15)}</span><div><code>${esc(text)}</code>${def ? `<p>${esc(def.description)}</p>` : ""}</div>${def ? `<span class="stage-pill">${stageLabel(def.stage)}</span>` : ""}</li>`;
                 })
                 .join("")}</ul>`
             : `<p class="muted">No faults: the scenario checks the agent against working tools.</p>`
@@ -855,7 +859,7 @@ export function catalogView(meta: Meta): string {
   </section>
   <section class="cat-section" id="cat-faults"><h2>Fault kinds</h2>
     <div class="card card-flush"><div class="table-wrap flush"><table class="tbl"><thead><tr><th>Kind</th><th>When</th><th>Effect</th><th>Params</th><th>Source</th></tr></thead><tbody>${meta.faults
-      .map((f) => `<tr><td class="nowrap"><span class="fault-tag">${icon("zap", 11)}${esc(f.kind)}</span></td><td><span class="stage-pill">${f.stage === "after" ? "after the call runs" : "before the call runs"}</span></td><td>${esc(f.description)}</td><td>${f.params.map((p) => `<code class="code-chip">${esc(p)}</code>`).join(" ")}</td><td class="muted">${esc(f.source)}</td></tr>`)
+      .map((f) => `<tr><td class="nowrap"><span class="fault-tag">${icon("zap", 11)}${esc(f.kind)}</span></td><td><span class="stage-pill">${stageLabel(f.stage)}</span></td><td>${esc(f.description)}</td><td>${f.params.map((p) => `<code class="code-chip">${esc(p)}</code>`).join(" ")}</td><td class="muted">${esc(f.source)}</td></tr>`)
       .join("")}</tbody></table></div></div>
   </section>
 </div>`;

@@ -1,6 +1,6 @@
 {
   "name": "agentcrucible",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Offline fault-injection tests for tool-using agents: scheduled tool failures in mock worlds, verdicts checked against committed state and the agent's answer, replayable traces, and a local UI.",
   "license": "MIT",
   "type": "module",
@@ -44,8 +44,8 @@
     "tsup": "^8.3.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vitest": "^4.1.11",
-    "vite": "^6.4.3"
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3"
   },
   "keywords": [
     "agents",
@@ -55,7 +55,9 @@
     "idempotency",
     "evaluation",
     "workflows",
-    "replay"
+    "replay",
+    "chaos-engineering",
+    "resilience"
   ],
   "repository": {
     "type": "git",

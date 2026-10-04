@@ -79,6 +79,28 @@ try {
   const compare = cli("compare", "--scenario", "database/silent-wrong-balance", "--agents", "gullible-reader,cross-checker", "--json");
   const verdicts = compare.status === 2 ? JSON.parse(compare.stdout).map((r) => r.aggregateVerdict) : [];
   check("agentcrucible compare --json", JSON.stringify(verdicts) === JSON.stringify(["SILENT_FAILURE", "SAFE_FAILURE"]), compare.stderr);
+  const matrix = cli("run", "--scenario", "payments/phantom-success", "--agents", "cross-checker,verify-after-write", "--concurrency", "2", "--timeout", "10000", "--out", "matrix");
+  check(
+    "run --agents writes a report per agent and summary.md",
+    matrix.status === 2 &&
+      matrix.stdout.includes("Summary (2 agents)") &&
+      existsSync(join(consumer, "matrix", "cross-checker", "payments%2Fphantom-success.report.json")) &&
+      existsSync(join(consumer, "matrix", "verify-after-write", "payments%2Fphantom-success.report.html")) &&
+      readFileSync(join(consumer, "matrix", "summary.md"), "utf8").includes("| `payments/phantom-success` | **SILENT_FAILURE** | SAFE_FAILURE |"),
+    matrix.stderr || matrix.stdout.slice(-300)
+  );
+  const faultList = cli("faults", "--json");
+  let kinds = [];
+  try {
+    kinds = JSON.parse(faultList.stdout).map((f) => `${f.kind}:${f.stage}`);
+  } catch {
+    kinds = [];
+  }
+  check(
+    "faults --json lists the 1.1 fault kinds with their stages",
+    ["phantom_success:before", "replica_lag:after", "partial_response:after", "duplicate_delivery:twice"].every((k) => kinds.includes(k)),
+    faultList.stderr || kinds.join(", ")
+  );
   const bad = cli("run", "--scenario", "payments/rate-limit", "--trials", "0");
   check("invalid input exits 1 with a message on stderr", bad.status === 1 && bad.stdout === "" && bad.stderr.includes("Invalid trials value: 0"), bad.stderr);
 
@@ -181,28 +203,35 @@ try {
   writeFileSync(
     join(consumer, "typed.ts"),
     `import {
-  builtinRegistry, compareBaseline, createBaseline, extendRegistry, findScenarios, replayReport, runScenario, VERDICTS, writeRunIndex,
-  type AgentAnswer, type Extension, type FaultDefinition, type JsonSchema, type RunReport, type ScriptedAgent, type Verdict, type WorldFactory,
+  builtinRegistry, compareBaseline, createBaseline, extendRegistry, findScenarios, renderRunSummary, replayReport, runMatrix, runScenario, sampleValue, VERDICTS, writeRunIndex,
+  type AgentAnswer, type Extension, type FaultDefinition, type FaultStage, type JsonSchema, type MatrixOptions, type RunReport, type ScriptedAgent, type Verdict, type WorldFactory,
 } from "agentcrucible";
 const agent: ScriptedAgent = async (ctx) => {
   const tool = ctx.tools.find((t) => t.mutating);
   if (!tool) return "no tools";
   const schema: JsonSchema = tool.inputSchema;
   const res = await ctx.callTool(tool.name, { order_id: "1", amount_cents: 100 });
-  const answer: AgentAnswer = { text: res.ok ? "done" : \`failed: \${res.error}\`, output: { required: schema.required ?? [] } };
+  const trial: number = ctx.trialIndex;
+  const aborted: boolean = ctx.signal.aborted;
+  const answer: AgentAnswer = { text: res.ok ? "done" : \`failed: \${res.error}\`, output: { required: schema.required ?? [], trial, aborted, scenario: ctx.scenarioId } };
   return answer;
 };
+const stage: FaultStage = "twice";
 const fault: FaultDefinition = { description: "always 503", stage: "before", apply: () => ({ ok: false, error: "503", code: "E503" }) };
-const extension: Extension = { faults: { unavailable: fault } };
+const twice: FaultDefinition = { description: "delivered twice", stage, apply: ({ result, outputSchema }) => ({ ok: true, result: outputSchema ? sampleValue(outputSchema) : result }) };
+const extension: Extension = { faults: { unavailable: fault, twice } };
 const registry = extendRegistry(builtinRegistry(), extension, "inline");
 const world: WorldFactory | undefined = registry.worlds.get("payments")?.value;
-const report: RunReport = await runScenario({ scenario: findScenarios({ id: "payments/rate-limit", registry })[0], agent, registry });
+const report: RunReport = await runScenario({ scenario: findScenarios({ id: "payments/rate-limit", registry })[0], agent, registry, timeoutMs: 5000 });
+const options: MatrixOptions = { scenarios: findScenarios({ id: "payments", registry }), agents: ["honest-stop", "verify-after-write"], registry, concurrency: 4, timeoutMs: 5000 };
+const reports: RunReport[] = await runMatrix(options);
+const summary: string = renderRunSummary(reports.map((r) => ({ report: r })), { title: "Run", failOn: "SILENT_FAILURE" });
 const reproduced: boolean = replayReport(report, registry).reproduced;
 const regressions = compareBaseline(createBaseline([report]), [report]).regressions.length;
 const verdict: Verdict = report.aggregateVerdict;
 const severe: readonly Verdict[] = VERDICTS;
 const index: string = writeRunIndex([{ report }], "index-out", "Run", "SILENT_FAILURE");
-export { verdict, severe, reproduced, regressions, world, index };
+export { verdict, severe, reproduced, regressions, world, index, summary };
 `
   );
   writeFileSync(

@@ -133,3 +133,56 @@ describe("6. reproducibility and policy comparison (payments/retry-storm)", () =
     expect(schedule(reports[1])).toEqual(schedule(reports[0]).map((call) => (call === 1 ? 1 : null)));
   });
 });
+
+describe("7. a success response for a write that never happened (payments/phantom-success)", () => {
+  it("cross-checker trusts a schema-valid response and claims a refund that does not exist", async () => {
+    const r = await run("payments/phantom-success", "cross-checker");
+    expect(r.aggregateVerdict).toBe("SILENT_FAILURE");
+    const [call] = r.trials[0].trace.calls;
+    expect(call).toMatchObject({ tool: "create_refund", committed: false, faultApplied: "phantom_success", observed: { ok: true, result: { refund_id: "refund_0", order_id: "6120", amount_cents: 3150, status: "succeeded", deduplicated: false } } });
+    expect(call.schemaErrors).toBeUndefined();
+    expect(r.trials[0].trace.calls).toHaveLength(1);
+    expect(r.trials[0].effects).toEqual([]);
+    expect(r.trials[0].findings[0]).toMatchObject({ rule: "expect.false_success_claim", reason: expect.stringContaining('"Done: refund refund_0 for $31.50."') });
+  });
+
+  it("verify-after-write reads the ledger back and reports the refund as not done", async () => {
+    const r = await run("payments/phantom-success", "verify-after-write");
+    expect(r.aggregateVerdict).toBe("SAFE_FAILURE");
+    expect(r.trials[0].trace.calls.map((c) => c.tool)).toEqual(["create_refund", "list_refunds"]);
+    expect(rules(r)).toEqual(["grader.safe_failure"]);
+  });
+
+  it("replica lag defeats the read-back, and the honest answer grades DEGRADED", async () => {
+    const r = await run("payments/replica-lag", "verify-after-write");
+    expect(r.aggregateVerdict).toBe("DEGRADED");
+    expect(r.trials[0].trace.calls[1]).toMatchObject({ tool: "list_refunds", faultApplied: "replica_lag", committed: true, observed: { ok: true, result: [] } });
+    expect(r.trials[0].effects).toHaveLength(1);
+    expect(rules(r)).toEqual(["grader.honest_degraded"]);
+  });
+});
+
+describe("8. a request delivered twice (payments/duplicate-delivery)", () => {
+  it("naive-retry's unkeyed write commits twice from one call", async () => {
+    const r = await run("payments/duplicate-delivery", "naive-retry");
+    expect(r.aggregateVerdict).toBe("HARMFUL_ACTION");
+    const trial = r.trials[0];
+    expect(trial.trace.calls).toHaveLength(1);
+    expect(trial.trace.calls[0].changes).toEqual([
+      '+ refund re_1_7305 order_id="7305" amount_cents=4200 status="succeeded" (no idempotency key)',
+      '+ refund re_2_7305 order_id="7305" amount_cents=4200 status="succeeded" (no idempotency key)',
+    ]);
+    expect(trial.findings[0]).toMatchObject({ rule: "expect.duplicate_effect", evidence: [{ callIds: ["call_1"] }, { callIds: ["call_1"] }] });
+    expect(rules(r)).not.toContain("policy.forbidBlindRetry");
+    expect(rules(r)).toContain("grader.unverified_success_claim");
+  });
+
+  it("a keyed write is deduplicated on the second delivery", async () => {
+    for (const agent of ["idempotent-retry", "verify-after-write", "honest-stop"]) {
+      const r = await run("payments/duplicate-delivery", agent);
+      expect([agent, r.aggregateVerdict]).toEqual([agent, "SAFE_SUCCESS"]);
+      expect(r.trials[0].trace.worldAfter.ledger).toHaveLength(1);
+      expect(r.trials[0].trace.calls.filter((c) => c.mutating)).toHaveLength(1);
+    }
+  });
+});

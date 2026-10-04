@@ -40,8 +40,10 @@ The agent is registered under its file name, lowercased, with other characters r
 | `ctx.tools` | The tool definitions: `name`, `description`, `mutating`, `inputSchema`, and `outputSchema`. The schemas are JSON Schema, in the shape MCP tool definitions use, so they can be handed to a model's tool-calling API. A fresh copy per trial. |
 | `ctx.callTool(name, args)` | Calls a tool. Resolves to `{ ok: true, result }` or `{ ok: false, error, code }`; it never throws. |
 | `ctx.history` | A copy of the transcript so far |
+| `ctx.scenarioId`, `ctx.trialIndex` | Which scenario and trial this is, for the agent's own logs |
+| `ctx.signal` | An `AbortSignal` that aborts when the trial's time limit (`--timeout`, config `timeoutMs`) runs out. Pass it to the model client's requests so a hung call stops with the trial. |
 
-The final answer is a string, or `{ text, output }` when the task asks for structured output; `output` must be JSON-serializable.
+The final answer is a string, or `{ text, output }` when the task asks for structured output; `output` must be JSON-serializable. A model-backed agent is usually slow, so run it with `--timeout` (a trial that exceeds it fails the run with an error rather than hanging it) and `--concurrency` (several scenario-and-agent runs at once; the reports are the same as from a sequential run).
 
 Error codes the agent can see:
 
@@ -105,7 +107,7 @@ When a world is loaded it is built once and exercised: `reset`, `snapshot`, and 
 agentcrucible: ext.mjs: worlds.counter: name is "other"; it must equal the registered name "counter"
   worlds.counter: tools[0].inputSchema.oneOf is not a supported keyword (supported: type, description, title, properties, required, additionalProperties, items, enum, const, pattern, anyOf, minimum, maximum, minLength, maxLength, minItems, maxItems)
   worlds.counter: recordFields.counter.value must be one of string, number, boolean, object, array
-  faults.flaky: stage must be "before" (the call does not run) or "after" (it runs, then the response changes)
+  faults.flaky: stage must be "before" (the call does not run), "after" (it runs, then the response changes), or "twice" (it runs twice; the agent sees the first response)
 ```
 
 ### Fault kinds
@@ -123,7 +125,8 @@ export const faults = {
 
 - **`stage: "before"`**: the call does not reach the world, so nothing commits. `apply` receives `result: undefined`.
 - **`stage: "after"`**: the world runs the call first. `apply` receives what the world returned and decides what the agent sees.
-- **`apply`** returns `{ ok: true, result }` or `{ ok: false, error, code? }`. Anything else stops the run with an error naming the fault.
+- **`stage: "twice"`**: the world runs the call twice, as when a request is delivered more than once. `apply` receives the first result. A call with an idempotency key is deduplicated the second time; a world error on the second delivery is ignored, since it is the service's to handle.
+- **`apply`** receives `{ tool, args, result, params, outputSchema }`, where `outputSchema` is the tool's output schema when it declares one, and returns `{ ok: true, result }` or `{ ok: false, error, code? }`. Anything else stops the run with an error naming the fault. The library exports `sampleValue(schema, hints)`, which builds a value that satisfies a schema from its constants, enums, and types, taking matching values from `hints`; the built-in `phantom_success` uses it to fake a response from the schema and the call's arguments.
 - **`params`** is a JSON Schema for the scenario's `params`; values that do not match are rejected when the scenario loads. Without `params`, any params are rejected.
 
 Scenarios schedule a custom fault exactly like a built-in one (`target`, `kind`, `on_call`, `on_calls`, `from_call`, `on_call_range`, `probability`). A response that a fault makes violate the tool's output schema is recorded as malformed, and the grader treats success claims based on it as unverified.
@@ -138,5 +141,5 @@ Scenarios schedule a custom fault exactly like a built-in one (`target`, `kind`,
 |---|---|
 | Names | Worlds `^[a-z][a-z0-9_-]*$`, faults `^[a-z][a-z0-9_]*$`, agents `^[a-z0-9][a-z0-9._-]*$`; no name may repeat a built-in or an earlier extension |
 | Tool schemas | Only the supported JSON Schema keywords (`type`, `properties`, `required`, `additionalProperties`, `items`, `enum`, `const`, `minimum`, `maximum`, `minLength`, `maxLength`, `pattern`, `minItems`, `maxItems`, `anyOf`, `description`, `title`); an unknown keyword is an error rather than silently ignored |
-| Fault definitions | A description, a stage, an `apply` function, and an object `params` schema when present |
+| Fault definitions | A description, a stage (`before`, `after`, or `twice`), an `apply` function, and an object `params` schema when present |
 | Modules | A missing file, a module that fails to load, and a module that exports none of `worlds`, `faults`, `agents` are errors naming the path |

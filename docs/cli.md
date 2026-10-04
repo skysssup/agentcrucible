@@ -3,17 +3,19 @@
 ```text
 agentcrucible init
 agentcrucible demo     [--scenario <id>] [--out <dir>]
-agentcrucible list     [--tag <tag>]
+agentcrucible list     [--tag <tag>] [--json]
 agentcrucible validate [<file or directory>] [--json]
-agentcrucible run      [--scenario <id> | --tag <tag>] [--agent <id|path>] [--trials <n>] [--seed <text>]
-                       [--fuzz-call <a-b>] [--out <dir>] [--json] [--fail-on <verdict>]
+agentcrucible run      [--scenario <id> | --tag <tag>] [--agent <id|path> | --agents a,b,./agent.mjs] [--trials <n>] [--seed <text>]
+                       [--fuzz-call <a-b>] [--timeout <ms>] [--concurrency <n>] [--out <dir>] [--json] [--fail-on <verdict>]
                        [--save-baseline <file>] [--baseline <file>]
-agentcrucible compare  --scenario <id> [--agents a,b,./agent.mjs] [--trials <n>] [--seed <text>] [--json] [--fail-on <verdict>]
-agentcrucible check    [--scenario <id> | --tag <tag>] [--trials <n>] [--json]
+agentcrucible compare  --scenario <id> [--agents a,b,./agent.mjs] [--trials <n>] [--seed <text>] [--timeout <ms>] [--concurrency <n>]
+                       [--json] [--fail-on <verdict>]
+agentcrucible check    [--scenario <id> | --tag <tag>] [--trials <n>] [--timeout <ms>] [--concurrency <n>] [--json]
 agentcrucible inspect  <report.json> [--trial <n>] [--call <id>] [--scenario <id>]
 agentcrucible replay   <report.json> [--scenario <id>] [--json]
 agentcrucible ui       [--port <n>] [--host <addr>] [--out <dir>] [--baseline <file>] [--agents a,b] [--fail-on <verdict>]
-agentcrucible agents | worlds | faults | config | examples | version | help
+agentcrucible agents | worlds | faults  [--json]
+agentcrucible config | examples | version | help
 ```
 
 Every command except `init`, `inspect`, `examples`, `version`, and `help` also accepts `--config <path>`. Unknown options, missing values, and invalid numbers are errors, not silent defaults.
@@ -24,15 +26,15 @@ Every command except `init`, `inspect`, `examples`, `version`, and `help` also a
 |---|---|
 | `init` | Writes `agentcrucible.config.json`, `scenarios/refund-lost-response.yaml`, and `agents/my-agent.mjs` into the current directory. Existing files are left alone, and no config file is written when one exists. |
 | `demo` | Runs the scenario's expected agents side by side (default `payments/timeout-after-commit`) and explains each verdict. Exits 2 if a verdict differs from `expected_verdicts`. Writes nothing unless `--out` is given. |
-| `list` | Lists scenario ids, worlds, tags, and the first sentence of each description. |
+| `list` | Lists scenario ids, worlds, tags, and the first sentence of each description. `--json` prints each scenario's id, worlds, tags, description, task, faults, expected verdicts, and source file. |
 | `validate` | Parses scenario files without running them and reports every file with an error and every duplicate id. Without a path, it checks the bundled and configured scenario directories. |
-| `run` | Runs one agent against the selected scenarios and writes reports. |
+| `run` | Runs one agent, or every agent of `--agents`, against the selected scenarios and writes reports. |
 | `compare` | Runs several agents on one scenario with the same seed, so the same faults fire at the same calls. |
 | `check` | Runs each scenario's `expected_verdicts` agents, 5 trials by default, and fails if a verdict differs or a declared fault never fired. Run it after editing scenarios. |
 | `inspect` | Prints a saved trial call by call, or one call in full with `--call`. |
 | `replay` | Re-executes a saved report's tool calls against fresh worlds, without the agent, and confirms every call, state, and verdict. |
 | `ui` | Serves the local web UI; see [ui.md](ui.md). |
-| `agents`, `worlds`, `faults` | List what scenarios can name, including extensions. |
+| `agents`, `worlds`, `faults` | List what scenarios can name, including extensions. `--json` prints the same as data: each agent's description and source, each world's tools with their JSON Schemas and record fields, and each fault kind's stage, description, and params schema. |
 | `config` | Prints the config file in use. |
 
 ## Selecting scenarios
@@ -44,16 +46,35 @@ Every command except `init`, `inspect`, `examples`, `version`, and `help` also a
 | Option | Default | |
 |---|---|---|
 | `--agent <id\|path>` | config `agent`, or `naive-retry` | A registered agent, or a module whose default export is your agent |
+| `--agents a,b,./x.mjs` | | Several agents. Every selected scenario runs against each; reports go to `<out>/<agent>/`, and the terminal shows a scenario-by-agent table. Not combined with `--agent`. |
 | `--trials <n>` | config `trials`, or 1 | 1 to 10000. The aggregate verdict is the worst trial's. |
 | `--seed <text>` | config `seed`, or `seed-<scenario id>` | Every fault decision is a function of the seed, the trial index, the tool, and the call number |
 | `--fuzz-call <a-b>` | | Replaces every fault's schedule with one seeded call index in a..b per trial |
+| `--timeout <ms>` | config `timeoutMs`, or none | A trial that takes longer fails the run with an error (exit 1) naming the agent, trial, and scenario. At the limit the agent's `ctx.signal` aborts and any further tool call is refused with `ECLOSED`. |
+| `--concurrency <n>` | config `concurrency`, or 1 | Scenario-and-agent runs in flight at once, 1 to 64. Each run has its own worlds and seed, so the reports, their order, and the exit status are the same at any setting; only a slow agent, such as one that calls a model, finishes sooner. |
 | `--out <dir>` | config `out`, or `.agentcrucible/out` | Report directory |
-| `--json` | | Print the report as JSON: one object for one scenario, an array for several |
+| `--json` | | Print the report as JSON: one object for one scenario and one agent, an array for several |
 | `--fail-on <verdict>` | config `failOn`, or `SILENT_FAILURE` | Exit 2 when a verdict is at least this severe |
 | `--save-baseline <file>` | | Write the results as a baseline |
 | `--baseline <file>` | | Compare with a baseline; exit 2 only for regressions and new failing scenarios |
 
-`run` writes `<id>.report.json`, `<id>.report.html`, and `<id>.junit.xml` per scenario, where `<id>` is the percent-encoded scenario id, and an `index.html` that links them. [traces.md](traces.md) describes the files and what reads them.
+`run` writes `<id>.report.json`, `<id>.report.html`, and `<id>.junit.xml` per scenario, where `<id>` is the percent-encoded scenario id, plus an `index.html` that links them and a `summary.md` with the same table in Markdown. With `--agents`, each agent's files go into `<out>/<agent>/`. [traces.md](traces.md) describes the files and what reads them.
+
+## In CI
+
+```yaml
+- run: npx agentcrucible check
+- run: npx agentcrucible run --tag smoke --agents ./agents/my-agent.mjs,cross-checker --concurrency 4 --timeout 60000 --baseline agentcrucible-baseline.json --out reports
+- run: cat reports/summary.md >> "$GITHUB_STEP_SUMMARY"
+  if: always()
+- uses: actions/upload-artifact@v7
+  if: always()
+  with:
+    name: agentcrucible-reports
+    path: reports/
+```
+
+`check` holds the scenarios to their `expected_verdicts`; `run --baseline` exits 2 only for a regression or a new failing scenario; `summary.md` puts the scenario-by-agent table, the failing results with their reasons, and the baseline changes on the job's summary page; and the JUnit files in `reports/` work with any test reporter.
 
 ## Reproducing runs
 
@@ -77,7 +98,7 @@ Fault schedules are `on_call`, `on_calls`, and `from_call` (exact calls), `on_ca
 | Status | When |
 |---|---|
 | `0` | Every verdict is below the `--fail-on` threshold, or (with `--baseline`) nothing got worse. `check` and `demo`: every expectation held. `replay`: the record reproduced. `validate`: every file is valid. |
-| `1` | Usage, config, scenario, extension, or report error; the message is on stderr. `validate`: a file has an error, or there are no scenario files. |
+| `1` | Usage, config, scenario, extension, report, or agent error, including a trial that exceeds `--timeout`; the message is on stderr. `validate`: a file has an error, or there are no scenario files. |
 | `2` | `run`/`compare`: a verdict at or above `--fail-on`. `run --baseline`: a regression or a new failing scenario. `check`/`demo`: an expected verdict did not hold or a fault never fired. `replay`: a call or verdict differs from the record. |
 
 With `--json`, stdout holds only JSON.
@@ -95,7 +116,9 @@ Settings come from command-line flags first, then a config file, then built-in d
   "scenarioDirs": ["scenarios"],
   "extensions": ["my-extension.mjs"],
   "defaultTag": "smoke",
-  "failOn": "DEGRADED"
+  "failOn": "DEGRADED",
+  "timeoutMs": 60000,
+  "concurrency": 4
 }
 ```
 
@@ -103,6 +126,7 @@ Settings come from command-line flags first, then a config file, then built-in d
 |---|---|
 | `agent` | Default agent for `run`: a registered id or a module path |
 | `trials`, `seed`, `out`, `failOn` | Defaults for the flags of the same name |
+| `timeoutMs`, `concurrency` | Defaults for `--timeout` and `--concurrency`; the UI applies them to its runs too |
 | `scenarioDirs` | Directories of scenario files, loaded after the bundled ones. The UI editor saves to the first. |
 | `extensions` | Modules that export worlds, fault kinds, and agents; see [extending.md](extending.md) |
 | `defaultTag` | Tag `run` uses when neither `--scenario` nor `--tag` is given |
@@ -121,6 +145,7 @@ The built-in agents are fixtures: each follows one fixed policy, so they demonst
 | `liar` | One unkeyed write, then "Successfully refunded the customer…" whatever happened | Write tasks |
 | `gullible-reader` | Reads once and reports the value as confirmed; a missing field reads as 0 | Balance questions |
 | `cross-checker` | Writes with a key and never retries. When a response is an error, unreadable, or inconsistent with the request, it reads the state back. It answers questions from two sources and only when they agree. | Both |
+| `verify-after-write` | Writes with a key, then reads the state back whatever the response said, and reports what the read shows. It never retries. The one agent that catches a success response for a write that never happened; replica lag still fools it. | Write tasks |
 | `workflow-naive` | Refund, email, resolve: retries each step without keys, resolves the ticket, and reports success regardless | Workflows |
 | `workflow-reconcile` | Retries without keys, then voids duplicate refunds; escalates the ticket when email keeps failing | Workflows |
 | `workflow-careful` | Keys every step, reads back unclear results, and escalates instead of resolving when email fails | Workflows |

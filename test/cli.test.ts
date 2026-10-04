@@ -146,6 +146,95 @@ describe("run", () => {
   });
 });
 
+describe("run with several agents, limits, and summaries", () => {
+  it("writes a report directory per agent, a matrix, an index, and summary.md with --agents", () => {
+    const out = tempDir();
+    const run = runCli(["run", "--tag", "smoke", "--agents", "naive-retry,cross-checker", "--concurrency", "3", "--out", out]);
+    expect(run.status, run.stderr).toBe(2);
+    expect(run.stdout).toContain("Summary (2 agents)");
+    expect(run.stdout).toMatch(/payments\/timeout-after-commit\s+!HARMFUL_ACTION\s+SAFE_SUCCESS/);
+    expect(run.stdout).toContain("! at or above --fail-on SILENT_FAILURE");
+    expect(run.stdout).toContain(`Reports written to ${out}/ (index.html, summary.md, <agent>/*.report.json, *.report.html, *.junit.xml)`);
+    expect(run.stdout).toMatch(/\d+ of 16 result\(s\) at or above --fail-on SILENT_FAILURE: exit 2/);
+    for (const agent of ["naive-retry", "cross-checker"]) {
+      for (const suffix of [".report.json", ".report.html", ".junit.xml"]) expect(existsSync(join(out, agent, `payments%2Ftimeout-after-commit${suffix}`))).toBe(true);
+    }
+    expect(existsSync(join(out, "payments%2Ftimeout-after-commit.report.json"))).toBe(false);
+    const index = readFileSync(join(out, "index.html"), "utf8");
+    expect(index).toContain('href="naive-retry/payments%252Ftimeout-after-commit.report.html"');
+    expect(index).toContain('href="cross-checker/payments%252Ftimeout-after-commit.report.html"');
+    const summary = readFileSync(join(out, "summary.md"), "utf8");
+    expect(summary).toContain("# AgentCrucible run: 8 scenarios (agents naive-retry, cross-checker)");
+    expect(summary).toContain("| Scenario | `naive-retry` | `cross-checker` |");
+    expect(summary).toContain("| `payments/timeout-after-commit` | **HARMFUL_ACTION** | SAFE_SUCCESS |");
+  });
+
+  it("keeps the flat layout and writes summary.md for one agent, and the same reports with any concurrency", () => {
+    const out = tempDir();
+    const sequential = runCli(["run", "--tag", "smoke", "--agent", "cross-checker", "--trials", "2", "--json", "--out", out]);
+    const parallel = runCli(["run", "--tag", "smoke", "--agents", "cross-checker", "--trials", "2", "--concurrency", "8", "--json", "--out", tempDir()]);
+    expect(sequential.status).toBe(0);
+    const strip = (text: string) => JSON.parse(text).map(({ startedAt: _s, finishedAt: _f, durationMs: _d, ...rest }: Record<string, unknown>) => rest);
+    expect(strip(parallel.stdout)).toEqual(strip(sequential.stdout));
+    expect(existsSync(join(out, "payments%2Ftimeout-after-commit.report.json"))).toBe(true);
+    const summary = readFileSync(join(out, "summary.md"), "utf8");
+    expect(summary).toContain("8 scenarios · agent `cross-checker` · 2 trials per scenario · fail on `SILENT_FAILURE`");
+    expect(summary).toContain("| Scenario | Verdict | Rule | Reason |");
+    expect(summary).toContain("| `payments/timeout-after-commit` | SAFE_SUCCESS | `grader.verified_success` |");
+    expect(summary.trimEnd().endsWith("**No result at or above `SILENT_FAILURE`.**")).toBe(true);
+  });
+
+  it("marks baseline changes in summary.md", () => {
+    const cwd = tempDir();
+    const save = runCli(["run", "--scenario", "payments/timeout-after-commit", "--agent", "idempotent-retry", "--save-baseline", "base.json", "--out", "reports"], { cwd });
+    expect(save.status, save.stderr).toBe(0);
+    const compare = runCli(["run", "--scenario", "payments/timeout-after-commit", "--agent", "naive-retry", "--baseline", "base.json", "--out", "reports"], { cwd });
+    expect(compare.status).toBe(2);
+    const summary = readFileSync(join(cwd, "reports", "summary.md"), "utf8");
+    expect(summary).toContain("baseline `base.json`");
+    expect(summary).toContain("| `payments/timeout-after-commit` | **HARMFUL_ACTION** | new failure | `expect.duplicate_effect` |");
+    expect(summary).toContain("## 1 change against the baseline\n\n- new failure: `payments/timeout-after-commit` · `naive-retry`: HARMFUL_ACTION");
+  });
+
+  it("fails the run when a trial exceeds --timeout, and takes the limit from the config file", () => {
+    const cwd = tempDir();
+    writeFileSync(
+      join(cwd, "slow.mjs"),
+      `export default async function slow(ctx) {
+        const r = await ctx.callTool("create_refund", { order_id: "4471", amount_cents: 8400, idempotency_key: "k" });
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        return r.ok ? "Refund done." : "The refund failed (" + r.error + ").";
+      }`
+    );
+    const args = ["run", "--scenario", "payments/timeout-after-commit", "--agent", "./slow.mjs", "--out", "reports"];
+    const timedOut = runCli([...args, "--timeout", "50"], { cwd });
+    expect(timedOut.status).toBe(1);
+    expect(timedOut.stderr).toContain('agentcrucible: Agent "slow" failed in trial 0 of payments/timeout-after-commit: agent "slow" did not answer within 50 ms (1 tool call(s) so far)');
+    expect(runCli([...args, "--timeout", "5000"], { cwd }).status).toBe(0);
+    writeFileSync(join(cwd, ".agentcrucible.json"), JSON.stringify({ timeoutMs: 50, concurrency: 2 }));
+    expect(runCli(args, { cwd }).stderr).toContain("did not answer within 50 ms");
+    expect(runCli([...args, "--timeout", "5000"], { cwd }).status).toBe(0);
+    expect(runCli(["compare", "--scenario", "payments/rate-limit", "--agents", "./slow.mjs,honest-stop", "--timeout", "50"], { cwd }).stderr).toContain("did not answer within 50 ms");
+    expect(runCli(["check", "--scenario", "payments/rate-limit", "--timeout", "50", "--concurrency", "4"], { cwd }).status).toBe(0);
+  });
+
+  it("prints machine-readable listings with --json", () => {
+    const scenarios = JSON.parse(runCli(["list", "--json", "--tag", "smoke"]).stdout);
+    expect(scenarios.map((s: { id: string }) => s.id)).toEqual(findScenarios({ tag: "smoke" }).map((s) => s.id));
+    expect(scenarios[0]).toMatchObject({ worlds: expect.any(Array), tags: expect.arrayContaining(["smoke"]), hasExpect: true, expectedVerdicts: expect.any(Object), faults: expect.any(Array) });
+    const agents = JSON.parse(runCli(["agents", "--json"]).stdout);
+    expect(agents).toContainEqual({ id: "verify-after-write", description: expect.stringContaining("reads the state back"), source: "built-in" });
+    const worlds = JSON.parse(runCli(["worlds", "--json"]).stdout);
+    expect(worlds.map((w: { name: string }) => w.name)).toEqual(["payments", "database", "email", "tickets", "filesystem"]);
+    expect(worlds[0].tools[0]).toMatchObject({ name: "create_refund", mutating: true, inputSchema: expect.any(Object), outputSchema: expect.any(Object) });
+    expect(worlds[0].records).toEqual({ refund: { order_id: "string", amount_cents: "number", status: "string", idempotency_key: "string" } });
+    const faults = JSON.parse(runCli(["faults", "--json"]).stdout);
+    expect(faults.map((f: { kind: string }) => f.kind)).toContain("duplicate_delivery");
+    expect(faults.find((f: { kind: string }) => f.kind === "phantom_success")).toMatchObject({ stage: "before", params: { type: "object" }, source: "built-in" });
+    expect(faults.find((f: { kind: string }) => f.kind === "timeout")).toMatchObject({ stage: "before", params: null });
+  });
+});
+
 describe("usage and input errors", () => {
   it.each([
     [["frobnicate"], /unknown command "frobnicate"/],
@@ -170,7 +259,12 @@ describe("usage and input errors", () => {
     [["compare", "--scenario", "rate-limit"], /"rate-limit" matches 3 scenarios \(email\/rate-limit, filesystem\/rate-limit, payments\/rate-limit\)/],
     [["compare", "--scenario", "payments/rate-limit", "--agents", "naive-retry,robot"], /unknown agent "robot"/],
     [["demo", "--scenario", "payments"], /demo needs an exact scenario id/],
-    [["agents", "--json"], /agents does not accept --json/],
+    [["agents", "--trials", "2"], /agents does not accept --trials \(options: --json, --config\)/],
+    [["run", "--scenario", "payments/rate-limit", "--agent", "liar", "--agents", "liar"], /use --agent <id\|path> for one agent or --agents a,b for several, not both/],
+    [["run", "--scenario", "payments/rate-limit", "--agents", " , "], /--agents needs at least one agent/],
+    [["run", "--scenario", "payments/rate-limit", "--timeout", "1.5"], /--timeout: Invalid timeout: 1.5 \(must be a whole number of milliseconds, at least 1\)/],
+    [["run", "--scenario", "payments/rate-limit", "--concurrency", "0"], /--concurrency: Invalid concurrency: 0 \(must be a whole number from 1 to 64\)/],
+    [["check", "--concurrency", "65"], /--concurrency: Invalid concurrency: 65/],
   ])("%j fails with a usage message", (args, message) => {
     const result = runCli(args as string[]);
     expectUsageError(result, message);
@@ -273,7 +367,7 @@ describe("check, demo, and informational commands", () => {
   it("check confirms every expected verdict and fault", () => {
     const result = runCli(["check"]);
     expect(result.status, result.stdout).toBe(0);
-    expect(result.stdout).toMatch(/^73\/73 checks pass \(trials=5, default seeds\)$/m);
+    expect(result.stdout).toMatch(/^95\/95 checks pass \(trials=5, default seeds\)$/m);
   });
 
   it("check fails when a fault never fires or a verdict differs", () => {
@@ -335,12 +429,15 @@ describe("check, demo, and informational commands", () => {
     const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
     expect(runCli(["--version"]).stdout.trim()).toBe(`agentcrucible ${pkg.version}`);
     expect(runCli(["agents"]).stdout.split("\n").filter(Boolean).map((l) => l.split(/\s+/)[0])).toEqual([
-      "naive-retry", "idempotent-retry", "honest-stop", "liar", "gullible-reader", "cross-checker", "workflow-naive", "workflow-reconcile", "workflow-careful",
+      "naive-retry", "idempotent-retry", "honest-stop", "liar", "gullible-reader", "cross-checker", "verify-after-write", "workflow-naive", "workflow-reconcile", "workflow-careful",
     ]);
     const worlds = runCli(["worlds"]).stdout;
     expect(worlds.split("\n").filter((l) => /^\w/.test(l)).map((l) => l.split(":")[0])).toEqual(["payments", "database", "email", "tickets", "filesystem"]);
     expect(worlds).toContain("tools: create_refund*, void_refund*, get_refund, list_refunds");
-    expect(runCli(["faults"]).stdout).toMatch(/^timeout_after_commit\s+after\s+the call commits, then the agent sees ETIMEDOUT$/m);
+    const faults = runCli(["faults"]).stdout;
+    expect(faults).toMatch(/^timeout_after_commit\s+after\s+the call commits, then the agent sees ETIMEDOUT$/m);
+    expect(faults).toMatch(/^duplicate_delivery\s+twice\s+the call reaches the service twice/m);
+    expect(faults).toMatch(/^phantom_success\s+before\s+.*\(params: result\)$/m);
     const cwd = tempDir();
     expect(runCli(["config"], { cwd }).stdout).toContain("No config file found");
     writeFileSync(join(cwd, ".agentcrucible.yml"), "agent: liar\n");

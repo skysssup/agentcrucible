@@ -113,7 +113,7 @@ describe("extension validation", () => {
         "  worlds.Counter: name must match /^[a-z][a-z0-9_-]*$/",
         "  faults.timeout: already defined by built-in",
         "  faults.flaky: description must be a non-empty string",
-        '  faults.flaky: stage must be "before" (the call does not run) or "after" (it runs, then the response changes)',
+        '  faults.flaky: stage must be "before" (the call does not run), "after" (it runs, then the response changes), or "twice" (it runs twice; the agent sees the first response)',
         "  faults.flaky: apply must be a function ({ tool, args, result, params }) => observation",
         "  agents.liar: already defined by built-in",
         "  agents.helper: must be a function (ctx) => answer, or { run, description }",
