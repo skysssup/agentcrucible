@@ -2,7 +2,6 @@
 const PATHS = {
   home: '<path d="M3.5 10.5 12 3.5l8.5 7"/><path d="M5.5 9v10.5a1 1 0 0 0 1 1H10v-6h4v6h3.5a1 1 0 0 0 1-1V9"/>',
   play: '<path d="M7.5 5.2v13.6a.8.8 0 0 0 1.2.7l11-6.8a.8.8 0 0 0 0-1.4l-11-6.8a.8.8 0 0 0-1.2.7z"/>',
-  sparkles: '<path d="M10 3.5l1.6 4.4 4.4 1.6-4.4 1.6L10 15.5l-1.6-4.4L4 9.5l4.4-1.6z"/><path d="M18 14l.8 2.2 2.2.8-2.2.8L18 20l-.8-2.2-2.2-.8 2.2-.8z"/>',
   layers: '<path d="M12 3 3 7.5l9 4.5 9-4.5z"/><path d="m3 12 9 4.5 9-4.5"/><path d="m3 16.5 9 4.5 9-4.5"/>',
   code: '<path d="m8.5 7.5-5 4.5 5 4.5"/><path d="m15.5 7.5 5 4.5-5 4.5"/><path d="m13.5 4.5-3 15"/>',
   runs: '<circle cx="12" cy="12" r="8.5"/><path d="M10.2 8.8v6.4a.5.5 0 0 0 .75.43l5.2-3.2a.5.5 0 0 0 0-.86l-5.2-3.2a.5.5 0 0 0-.75.43z"/>',
@@ -25,7 +24,6 @@ const PATHS = {
   moon: '<path d="M19.5 14.6A7.8 7.8 0 0 1 9.4 4.5a7.8 7.8 0 1 0 10.1 10.1z"/>',
   monitor: '<rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M8.5 20h7M12 16.5V20"/>',
   chevronRight: '<path d="m9.5 6 6 6-6 6"/>',
-  chevronDown: '<path d="m6 9.5 6 6 6-6"/>',
   arrowRight: '<path d="M4.5 12h15"/><path d="m13.5 6 6 6-6 6"/>',
   copy: '<rect x="8.5" y="8.5" width="12" height="12" rx="2.2"/><path d="M15.5 8.5V5.7a2.2 2.2 0 0 0-2.2-2.2H5.7a2.2 2.2 0 0 0-2.2 2.2v7.6a2.2 2.2 0 0 0 2.2 2.2h2.8"/>',
   download: '<path d="M12 3.5v11.5"/><path d="m7 10.5 5 5 5-5"/><path d="M4.5 20h15"/>',
@@ -46,30 +44,18 @@ const PATHS = {
   target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.8"/><circle cx="12" cy="12" r="1.2"/>',
   lock: '<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/>',
   message: '<path d="M20.5 11.6c0 4.2-3.8 7.6-8.5 7.6-1.1 0-2.2-.2-3.2-.5L4 20.2l1.3-3.7a7.1 7.1 0 0 1-1.8-4.9C3.5 7.4 7.3 4 12 4s8.5 3.4 8.5 7.6z"/>',
-  gauge: '<path d="M4.2 17.5a8.5 8.5 0 1 1 15.6 0"/><path d="m12 13.5 3.6-3.6"/><circle cx="12" cy="13.5" r="1.1"/>',
   hash: '<path d="M9.5 3.5 7.5 20.5M16.5 3.5l-2 17M4 9h16.5M3.5 15H20"/>',
   repeat: '<path d="m16.5 3 3.5 3.5-3.5 3.5"/><path d="M4 11.5v-.8a4.2 4.2 0 0 1 4.2-4.2H20"/><path d="m7.5 21-3.5-3.5L7.5 14"/><path d="M20 12.5v.8a4.2 4.2 0 0 1-4.2 4.2H4"/>',
   menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
-  command: '<path d="M9 6.5A2.5 2.5 0 1 0 6.5 9H9zM9 9v6M15 9v6M9 15H6.5A2.5 2.5 0 1 0 9 17.5zM15 15h2.5a2.5 2.5 0 1 1-2.5 2.5zM15 9V6.5A2.5 2.5 0 1 1 17.5 9zM9 9h6M9 15h6"/>',
-  filter: '<path d="M4 5.5h16l-6.2 7.3v5.4l-3.6 1.6v-7z"/>',
   grid: '<rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/>',
   list: '<path d="M9 6.5h11M9 12h11M9 17.5h11"/><path d="M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01"/>',
-  flask: '<path d="M9.5 3.5h5M10.5 3.5v5.2L4.9 18.2a1.5 1.5 0 0 0 1.3 2.3h11.6a1.5 1.5 0 0 0 1.3-2.3l-5.6-9.5V3.5"/><path d="M7.4 14h9.2"/>',
-  wand: '<path d="m14.5 4.5 5 5L8 21l-5-5z"/><path d="m11.5 7.5 5 5"/>',
   info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5"/><path d="M12 7.8h.01"/>',
-  dot: '<circle cx="12" cy="12" r="3.5" fill="currentColor" stroke="none"/>',
+  keyboard: '<rect x="2.8" y="6" width="18.4" height="12" rx="2.2"/><path d="M6.5 9.8h.01M10 9.8h.01M13.5 9.8h.01M17 9.8h.01M6.5 13.6h.01M17 13.6h.01M9.5 14.2h5"/>',
+  spark: '<path d="M12 3.2c.6 4.7 2.6 6.7 7.3 7.3-4.7.6-6.7 2.6-7.3 7.3-.6-4.7-2.6-6.7-7.3-7.3 4.7-.6 6.7-2.6 7.3-7.3z"/>',
 } as const;
 
 export type IconName = keyof typeof PATHS;
 
 export function icon(name: IconName, size = 16, extra = ""): string {
-  return `<svg class="i${extra ? ` ${extra}` : ""}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${PATHS[name]}</svg>`;
-}
-
-let logos = 0;
-
-/** The brand mark: an ember tile holding a crucible with a spark above it. */
-export function logo(size = 28): string {
-  const id = `ac-ember-${++logos}`;
-  return `<svg class="logo" width="${size}" height="${size}" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffb35c"/><stop offset=".5" stop-color="#ff6a2b"/><stop offset="1" stop-color="#e5384d"/></linearGradient></defs><rect width="32" height="32" rx="8.5" fill="url(#${id})"/><path d="M8.5 13.5h15l-1.9 8.7a2.6 2.6 0 0 1-2.5 2.1h-6.2a2.6 2.6 0 0 1-2.5-2.1z" fill="#fff" fill-opacity=".96"/><path d="M7.5 13.5h17" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M16.2 4.8c1.9 1.7 2.6 3.3 1.3 5.2h-3c-1.2-1.8-.4-3.5 1.7-5.2z" fill="#fff" fill-opacity=".9"/></svg>`;
+  return `<svg class="i${extra ? ` ${extra}` : ""}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${PATHS[name]}</svg>`;
 }

@@ -11,8 +11,8 @@ It finds the failure handling that ordinary tests miss:
 - an unkeyed write that a proxy delivered twice.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/ui-demo-dark.png">
-  <img alt="The AgentCrucible UI: the guided demo runs five agents against the same lost response" src="docs/images/ui-demo.png">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/ui-overview-dark.png">
+  <img alt="The AgentCrucible UI: the overview shows the guided demo's five agents against one lost response, the latest results, and the mix of verdicts" src="docs/images/ui-overview.png">
 </picture>
 
 ## Install
@@ -204,11 +204,13 @@ Create the baseline once with `--save-baseline agentcrucible-baseline.json` and 
 `agentcrucible ui` serves a local web app on 127.0.0.1 for the project in the current directory:
 
 - walk through a guided demo: five agents handle the same lost response, call by call;
-- browse and search scenarios, and run any selection against any agents as a scenario-by-agent matrix;
+- browse and search scenarios, and run any selection against any agents as a scenario-by-agent matrix, then run it again or copy it as Markdown, CSV, or the CLI commands that repeat it;
 - open each report's timeline, replay it, and save it;
+- see how each agent fared across runs and saved reports on the Agents scorecard;
 - compare a run with the baseline, or save it as the new baseline;
 - write scenarios in an editor that validates as you type, run the draft, and save it to the project;
-- look up every agent, world, tool, and fault kind.
+- look up every agent, world, tool, and fault kind;
+- do all of it from the keyboard: ⌘K jumps anywhere, and `?` lists the shortcuts.
 
 It loads nothing from the network, and its API answers only its own page. [docs/ui.md](docs/ui.md) describes each page and the security model.
 

@@ -6,8 +6,6 @@ import { esc, renderReportHtml, renderRunIndex, type RunIndexEntry } from "./htm
 import { REPORT_VERSION, VERDICTS, type GradedTrial, type RunReport, type Verdict } from "./types.js";
 import { atLeast } from "./verdict.js";
 
-export { describeExpect, describeFault, worstTrial } from "./describe.js";
-
 const ANSI: Record<Verdict | "bold" | "dim", string> = {
   HARMFUL_ACTION: "\x1b[31m",
   SILENT_FAILURE: "\x1b[35m",
