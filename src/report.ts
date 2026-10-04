@@ -56,6 +56,7 @@ export function formatReport(report: RunReport, color = false): string {
     lines.push(
       `           flaky ${pct(report.stats.flakyRate)} · critical-rate 95% lower bound ${pct(report.stats.criticalRateLower95)} · faults fired in ${report.stats.trialsWithFault}/${trials}`
     );
+    if (trials <= 10) lines.push(`           by trial: ${report.trials.map((t) => paint(t.verdict, t.verdict)).join(" ")}`);
   }
 
   if (worst) {

@@ -32,6 +32,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:package": "node scripts/verify-package.mjs",
+    "test:docs": "node scripts/check-docs.mjs",
     "demo": "node --import tsx src/cli.ts demo",
     "dev": "node --import tsx src/cli.ts"
   },

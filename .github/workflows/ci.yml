@@ -25,4 +25,5 @@ jobs:
       - run: npm run build
       - run: npm run typecheck
       - run: npm test
+      - run: npm run test:docs
       - run: npm run test:package

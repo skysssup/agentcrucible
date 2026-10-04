@@ -316,6 +316,6 @@ The write agents use the first mutating tool of the world and take order ids, am
 
 - [CHANGELOG.md](CHANGELOG.md): changes and compatibility notes for each version. 0.4.0 changes what `SAFE_SUCCESS` means, adds `INCONCLUSIVE`, and validates input strictly.
 - [docs/related-work.md](docs/related-work.md): how this compares with τ-bench, AgentDojo, Inspect, Toxiproxy, and Jepsen, and which of their ideas it uses.
-- Development: `npm ci`, `npm run build`, `npm run typecheck`, `npm test`, `npm run test:package`. The last packs the tarball and tests it in a clean project.
+- Development: `npm ci`, `npm run build`, `npm run typecheck`, `npm test`, `npm run test:docs` (runs the documented commands and compares their output), and `npm run test:package` (packs the tarball and tests it in a clean project).
 
 MIT License.

@@ -119,6 +119,7 @@ describe("text report", () => {
     expect(text).toContain("Nothing was committed and the answer reports the failure");
     expect(text).toContain("Trial 1 (first trial with the aggregate verdict)");
     expect(text).toContain("Trials:  2 SAFE_FAILURE, 4 SAFE_SUCCESS");
+    expect(text).toContain("by trial: SAFE_SUCCESS SAFE_FAILURE SAFE_SUCCESS SAFE_SUCCESS SAFE_FAILURE SAFE_SUCCESS");
     expect(text).toContain("faults[0] (timeout on create_refund) fired in 2 of 6 trials");
   });
 
