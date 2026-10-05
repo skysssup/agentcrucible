@@ -41,3 +41,7 @@ export type { SummaryOptions } from "./summary.js";
 export { loadConfig, loadConfigFile, findConfigPath, parseConfigText, CONFIG_FILES } from "./config.js";
 export type { CrucibleConfig } from "./config.js";
 export { VERSION } from "./version.js";
+export { runSweep, sweepKinds, summarizeSweep, scoreCells, worstOf, formatSweep, sweepMarkdown, parseSweepSteps, DEFAULT_SWEEP_STEPS, MAX_SWEEP_STEPS } from "./sweep.js";
+export type { SweepOptions, SweepResult, SweepSummary, SweepCell, SweepStep, SweepKind, SweepScore } from "./sweep.js";
+export { computeCoverage, formatCoverage } from "./coverage.js";
+export type { Coverage, WorldCoverage, ToolCoverage, FaultKindCoverage, AgentCoverage, CoverageCell } from "./coverage.js";

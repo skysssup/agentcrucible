@@ -69,7 +69,7 @@ npx agentcrucible ui
 created  agentcrucible.config.json
 created  scenarios/refund-lost-response.yaml
 created  agents/my-agent.mjs
-24 scenario file(s) valid
+25 scenario file(s) valid
   Verdict: SAFE_SUCCESS
 ```
 

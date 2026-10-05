@@ -367,7 +367,7 @@ describe("check, demo, and informational commands", () => {
   it("check confirms every expected verdict and fault", () => {
     const result = runCli(["check"]);
     expect(result.status, result.stdout).toBe(0);
-    expect(result.stdout).toMatch(/^95\/95 checks pass \(trials=5, default seeds\)$/m);
+    expect(result.stdout).toMatch(/^99\/99 checks pass \(trials=5, default seeds\)$/m);
   });
 
   it("check fails when a fault never fires or a verdict differs", () => {
