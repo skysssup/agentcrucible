@@ -310,12 +310,17 @@ export function actorColor(name: string, profile?: { name: string; color: string
   return AVATAR_COLORS[hash % AVATAR_COLORS.length];
 }
 
+/** The CLI command that runs a sweep with these settings; a seed equal to the default is left out. */
+export function sweepRequestCommand(r: { scenarioId: string; agentId: string; kinds: string[]; steps: number; trials: number; seed?: string }): string {
+  const parts = ["agentcrucible", "sweep", "--scenario", shellQuote(r.scenarioId), "--agent", shellQuote(r.agentId), "--kinds", r.kinds.join(","), "--steps", String(r.steps)];
+  if (r.trials !== 1) parts.push("--trials", String(r.trials));
+  if (r.seed && r.seed !== `sweep-${r.scenarioId}`) parts.push("--seed", shellQuote(r.seed));
+  return parts.join(" ");
+}
+
 /** The CLI command that repeats a sweep. */
 export function sweepCommand(s: SweepSummary): string {
-  const parts = ["agentcrucible", "sweep", "--scenario", shellQuote(s.scenarioId), "--agent", shellQuote(s.agentId), "--kinds", s.kinds.map((k) => k.kind).join(","), "--steps", String(s.steps.length)];
-  if (s.trials !== 1) parts.push("--trials", String(s.trials));
-  if (s.seed !== `sweep-${s.scenarioId}`) parts.push("--seed", shellQuote(s.seed));
-  return parts.join(" ");
+  return sweepRequestCommand({ scenarioId: s.scenarioId, agentId: s.agentId, kinds: s.kinds.map((k) => k.kind), steps: s.steps.length, trials: s.trials, seed: s.seed });
 }
 
 /** Every cell of a sweep as CSV, one row per fault kind and step. */
