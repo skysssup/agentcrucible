@@ -26,7 +26,7 @@ function tempDir(): string {
 }
 
 function runCli(args: string[], cwd: string) {
-  const r = spawnSync(process.execPath, ["--import", loader, join(root, "src", "cli.ts"), ...args], { cwd, encoding: "utf8", env: { ...process.env, NO_COLOR: "1" } });
+  const r = spawnSync(process.execPath, ["--import", loader, join(root, "src", "cli.ts"), ...args], { cwd, encoding: "utf8", env: { ...process.env, NO_COLOR: "1", GITHUB_ACTIONS: undefined, GITHUB_STEP_SUMMARY: undefined } });
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 }
 

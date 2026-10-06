@@ -24,7 +24,7 @@ function runCli(args: string[], opts: { cwd?: string; env?: Record<string, strin
     cwd: opts.cwd ?? tempDir(),
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
-    env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: undefined, ...opts.env },
+    env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: undefined, GITHUB_ACTIONS: undefined, GITHUB_STEP_SUMMARY: undefined, ...opts.env },
   });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
