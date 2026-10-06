@@ -40,7 +40,7 @@ It finds the failure handling that ordinary tests and evals miss:
 Node.js 22.12 or later. Install from the release tarball, or from a clone:
 
 ```bash
-npm install https://github.com/skysssup/agentcrucible/releases/download/v2.0.0/agentcrucible-2.0.0.tgz
+npm install https://github.com/skysssup/agentcrucible/releases/download/v2.1.0/agentcrucible-2.1.0.tgz
 npx agentcrucible demo
 ```
 

@@ -69,7 +69,7 @@ for (const doc of DOCS) {
  * model provider needs a key, so those are not run.
  */
 function isCommand(line) {
-  return (/^(npx )?agentcrucible /.test(line) || line.startsWith("node dist/cli.js ")) && !/^(npx )?agentcrucible (ui|mcp)\b/.test(line) && !/\b(openai|anthropic|ollama):/.test(line);
+  return (/^(npx )?agentcrucible /.test(line) || line.startsWith("node dist/cli.js ")) && !/^((npx )?agentcrucible|node dist\/cli\.js) (ui|mcp)\b/.test(line) && !/\b(openai|anthropic|ollama):/.test(line);
 }
 
 const readmeYaml = readFileSync(join(root, "README.md"), "utf8").match(/```yaml\n([\s\S]*?)```/)[1];

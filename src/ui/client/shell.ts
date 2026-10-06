@@ -1,6 +1,6 @@
 /** The frame around every page: the sidebar, the top bar, and the phone tab bar, and their live counts. */
 import { logo } from "../../html.js";
-import { esc, plural } from "./lib/format.js";
+import { esc } from "./lib/format.js";
 import { MOD } from "./lib/dom.js";
 import { projectName, store } from "./lib/state.js";
 import { icon } from "./icons.js";
@@ -94,7 +94,7 @@ export function updateShell(): void {
     const n = store.notifications.unread;
     bell.hidden = n === 0;
     bell.textContent = n > 99 ? "99+" : String(n);
-    document.getElementById("bell")?.setAttribute("aria-label", n ? `Notifications, ${plural(n, "unread")}` : "Notifications");
+    document.getElementById("bell")?.setAttribute("aria-label", n ? `Notifications, ${n} unread` : "Notifications");
   }
   const jobs = document.getElementById("jobs-indicator");
   if (jobs) {

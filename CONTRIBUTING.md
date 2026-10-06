@@ -41,7 +41,10 @@ A change to grading, a world, or a fault kind usually changes verdicts. `test/sc
 | `src/mcp.ts` | the MCP server mode |
 | `src/report.ts`, `src/html.ts`, `src/summary.ts`, `src/baseline.ts`, `src/replay.ts` | reports in every format, baselines, replay |
 | `src/cli.ts`, `src/completion.ts`, `src/github.ts` | the command line, shell completions, GitHub Actions output |
-| `src/ui/` | the local web UI: a Node server and a dependency-free browser bundle |
+| `src/ui/server.ts`, `src/ui/api.ts`, `src/ui/workspace.ts` | the local console's server: the JSON API and its types, background jobs, and the history file (runs, sweeps, activity, notifications, profile) |
+| `src/ui/demo-workspace.ts` | `ui --demo`: a generated project with eight weeks of history from the real engine |
+| `src/ui/client/` | the dependency-free browser bundle: `app.ts` (boot and dispatch), `shell.ts`, `routes.ts`, `pages/` (one module per page), `ui/` (components), `lib/` (state, API, analytics, formatting) |
+| `src/ui/styles/` | the console's CSS in layers (base, controls, layout, data, overlays) and one file per page group in `pages/`; the tokens live in `BASE_CSS` in `src/html.ts` |
 | `scenarios/` | the bundled scenarios; `docs/` the reference; `examples/` a complete extension project |
 
 ## Conventions

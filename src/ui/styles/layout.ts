@@ -49,7 +49,7 @@ export const LAYOUT_CSS = `
   .crumbs a:hover { color:var(--fg); }
   .crumbs [aria-current] { overflow:hidden; color:var(--fg); font-weight:500; text-overflow:ellipsis; }
   .crumbs .crumb-sep { flex:none; color:var(--faint); }
-  .tb-search { display:flex; flex:0 1 380px; align-items:center; gap:8px; height:32px; margin-left:auto; padding:0 6px 0 10px; border:1px solid var(--border-2); border-radius:var(--r-sm); background:var(--surface); color:var(--muted); font-size:12.5px; text-align:left; cursor:pointer; transition:border-color var(--t-fast), color var(--t-fast); }
+  .tb-search { display:flex; flex:0 1 380px; align-items:center; gap:8px; min-width:0; height:32px; margin-left:auto; padding:0 6px 0 10px; border:1px solid var(--border-2); border-radius:var(--r-sm); background:var(--surface); color:var(--muted); font-size:12.5px; text-align:left; cursor:pointer; transition:border-color var(--t-fast), color var(--t-fast); }
   .tb-search:hover { border-color:var(--border-3); color:var(--fg-2); }
   .tb-search span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .tb-actions { display:flex; flex:none; align-items:center; gap:4px; }
@@ -199,8 +199,11 @@ export const LAYOUT_CSS = `
     .tb-logo { align-items:center; color:var(--fg); }
     .topbar { gap:6px; padding:0 8px 0 6px; }
     .crumbs { display:none; }
-    .tb-search { flex:1 1 auto; margin-left:4px; }
-    .tb-search kbd, .tb-hide-sm { display:none; }
+    .tb-search { flex:0 0 36px; justify-content:center; width:36px; height:36px; margin-left:auto; padding:0; }
+    .tb-search span, .tb-search kbd, .tb-hide-sm { display:none; }
+    .panel-head { flex-wrap:wrap; row-gap:2px; padding:8px 14px; }
+    .panel-meta { order:3; flex-basis:100%; white-space:normal; }
+    .panel-body { padding:14px; }
     .page { padding-top:18px; padding-bottom:calc(var(--tabbar) + 40px); }
     .page-head { align-items:flex-start; margin-bottom:16px; }
     .page-title { font-size:19px; }

@@ -467,6 +467,10 @@ export function renderRunIndex(entries: RunIndexEntry[], title: string, failOn: 
   }
   const scenarios = new Set(entries.map((e) => e.report.scenarioId)).size;
   const agents = new Set(entries.map((e) => e.report.agentId)).size;
+  const count = (...verdicts: Verdict[]) => verdicts.reduce((n, v) => n + (counts.get(v) ?? 0), 0);
+  const trials = entries.reduce((n, e) => n + e.report.stats.total, 0);
+  const failing = entries.filter((e) => VERDICTS.indexOf(e.report.aggregateVerdict) <= VERDICTS.indexOf(failOn)).length;
+  const topVerdict = [...counts.keys()][0];
   const rows = entries
     .map(({ report: r, href, change }) => {
       const worst = worstTrial(r);
@@ -479,8 +483,7 @@ export function renderRunIndex(entries: RunIndexEntry[], title: string, failOn: 
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>${esc(title)}</title>
-<style>${BASE_CSS}${PAGE_CSS}
-  h1 { margin:0 0 12px; font-size:16px; }
+<style>${BASE_CSS}${PAGE_CSS}${KPI_CSS}
   .bar { display:flex; gap:1px; height:6px; margin:0 0 12px; }
   .bar span { min-width:2px; border-radius:3px; background:var(--v); }
   .summary { display:flex; flex-wrap:wrap; gap:4px 16px; margin:0 0 4px; }
@@ -501,11 +504,18 @@ export function renderRunIndex(entries: RunIndexEntry[], title: string, failOn: 
 <body>
 ${brandBar("Run", entries[0]?.report.toolVersion)}
 <main>
-  <h1>${esc(title)}</h1>
-  <div class="note">${plural(scenarios, "scenario")} × ${plural(agents, "agent")}</div>
+  <header class="page-title">
+    <h1>${esc(title)}</h1>
+    <div class="meta"><span>${plural(scenarios, "scenario")} × ${plural(agents, "agent")}</span><span>${plural(entries.length, "report")}</span><span>${plural(trials, "trial")}</span><span>fails at <code>${esc(failOn)}</code> or worse</span></div>
+  </header>
+  ${kpiCells([
+    ["Reports", String(entries.length), `${plural(scenarios, "scenario")} × ${plural(agents, "agent")}`],
+    ["Ended safe", String(count("SAFE_SUCCESS", "SAFE_FAILURE")), "SAFE_SUCCESS or SAFE_FAILURE"],
+    ["Critical", String(count("HARMFUL_ACTION", "SILENT_FAILURE")), "HARMFUL_ACTION or SILENT_FAILURE"],
+    ["Gate", failing ? "fails" : "passes", failing ? `${plural(failing, "report")} at or above ${failOn}` : `nothing at or above ${failOn}`, failing && topVerdict ? topVerdict : "SAFE_SUCCESS"],
+  ])}
   <div class="bar">${[...counts].map(([v, n]) => `<span class="${esc(v)}" style="flex:${n}" title="${n} ${esc(v)}"></span>`).join("")}</div>
   <p class="summary">${[...counts].map(([v, n]) => `<span>${n} <span class="badge ${esc(v)}">${esc(v)}</span></span>`).join("")}</p>
-  <p class="note">${plural(entries.length, "report")}. Verdicts at or above ${esc(failOn)} fail the run.</p>
   <div class="table"><table><thead><tr><th>Scenario</th><th>Agent</th><th>Verdict</th><th>Trials</th><th>Deciding rule</th><th>Reason</th></tr></thead>
   <tbody>${rows}</tbody></table></div>
 </main>
@@ -602,8 +612,9 @@ export const SWEEP_CSS = `
   .hm-key { min-width:32px; height:20px; font-size:10px; }
 `;
 
-function kpiCells(cells: Array<[string, string, string]>): string {
-  return `<div class="kpis">${cells.map(([label, value, detail]) => `<div class="kpi"><span class="kpi-label">${esc(label)}</span><span class="kpi-num">${esc(value)}</span><span class="kpi-sub">${esc(detail)}</span></div>`).join("")}</div>`;
+/** KPI cells for standalone pages; a cell's optional verdict colors its value. */
+function kpiCells(cells: Array<[label: string, value: string, detail: string, tone?: Verdict]>): string {
+  return `<div class="kpis">${cells.map(([label, value, detail, tone]) => `<div class="kpi"><span class="kpi-label">${esc(label)}</span><span class="kpi-num${tone ? ` tone ${esc(tone)}` : ""}">${esc(value)}</span><span class="kpi-sub">${esc(detail)}</span></div>`).join("")}</div>`;
 }
 
 /** The KPI cell styles of standalone pages. The local UI has its own. */
@@ -613,6 +624,7 @@ const KPI_CSS = `
   .kpi:first-child { border-left:0; }
   .kpi-label { color:var(--muted); font:500 11px/1.3 var(--font-sans); letter-spacing:.04em; text-transform:uppercase; }
   .kpi-num { font:600 20px/1.2 var(--font-mono); }
+  .kpi-num.tone { color:var(--v-fg); }
   .kpi-sub { overflow:hidden; color:var(--muted); font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
   @media (max-width: 640px) { .kpis { grid-template-columns:repeat(2, minmax(0,1fr)); } .kpi:nth-child(odd) { border-left:0; } .kpi:nth-child(n+3) { border-top:1px solid var(--border); } }
 `;

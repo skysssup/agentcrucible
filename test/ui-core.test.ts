@@ -53,6 +53,9 @@ describe("format", () => {
     const now = Date.parse("2026-10-05T12:00:00.000Z");
     expect(relTime("2026-10-05T11:59:40.000Z", now)).toBe("just now");
     expect(relTime("2026-10-05T09:00:00.000Z", now)).toBe("3 h ago");
+    expect(relTime("2026-10-05T11:59:10.000Z", now)).toBe("1 min ago");
+    expect(relTime("2026-10-05T11:00:10.000Z", now)).toBe("59 min ago");
+    expect(relTime("2026-10-04T12:20:00.000Z", now)).toBe("23 h ago");
     expect(relTime("2026-10-04T09:00:00.000Z", now)).toBe("yesterday");
     expect(relTime("2026-10-01T12:00:00.000Z", now)).toBe("4 days ago");
     expect(relTime(undefined)).toBe("");

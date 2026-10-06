@@ -17,7 +17,7 @@ agentcrucible coverage   [--tag <tag>] [--json]
 agentcrucible inspect    <report.json> [--trial <n>] [--call <id>] [--scenario <id>]
 agentcrucible replay     <report.json> [--scenario <id>] [--json]
 agentcrucible mcp        --scenario <id> [--seed <text>] [--out <dir>] [--agent-id <name>]
-agentcrucible ui         [--port <n>] [--host <addr>] [--out <dir>] [--baseline <file>] [--agents a,b] [--fail-on <verdict>] [model options]
+agentcrucible ui         [--port <n>] [--host <addr>] [--out <dir>] [--baseline <file>] [--agents a,b] [--fail-on <verdict>] [--state <dir> | --no-history] [--demo] [model options]
 agentcrucible agents | faults  [--json | --ids]
 agentcrucible worlds     [--json]
 agentcrucible schema
@@ -43,7 +43,7 @@ Model options are `--record <dir>`, `--system <file>`, and `--max-steps <n>`; th
 | `inspect` | Prints a saved trial call by call, or one call in full with `--call`. |
 | `replay` | Re-executes a saved report's tool calls against fresh worlds, without the agent, and confirms every call, state, and verdict. |
 | `mcp` | Serves one trial of a scenario to an MCP client over stdio and grades the answer it submits; see [mcp.md](mcp.md). |
-| `ui` | Serves the local web UI; see [ui.md](ui.md). |
+| `ui` | Serves the local web UI; see [ui.md](ui.md). Run history, activity, notifications, and the profile persist in `<dir>/workspace.json` (`--state`, default `.agentcrucible/ui`); `--no-history` keeps them in memory for the session only. `--demo` generates a demo workspace with eight weeks of history in a temporary directory and serves it; it cannot be combined with `--config`, `--out`, `--baseline`, `--state`, or `--no-history`. |
 | `agents`, `worlds`, `faults` | List what scenarios can name, including extensions. `--json` prints the same as data: each agent's description and source, each world's tools with their JSON Schemas and record fields, and each fault kind's stage, description, and params schema. `--ids` prints one name per line, for scripts and shell completion. |
 | `schema` | Prints the JSON Schema for scenario files, with the registry's worlds, fault kinds, record kinds, tools, and agents as enums; with `--config`, extension worlds and faults are included. The schema for the built-in registry ships as `schema/scenario.schema.json` and at `https://raw.githubusercontent.com/skysssup/agentcrucible/main/schema/scenario.schema.json`. |
 | `completion` | Prints a completion script for bash, zsh, or fish, generated from the command table. The scripts complete commands, options, scenario ids (`list --ids`), tags, agent ids, fault kinds, verdicts, and files. |

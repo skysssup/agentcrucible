@@ -1,7 +1,7 @@
 {
   "name": "agentcrucible",
-  "version": "2.0.0",
-  "description": "Offline fault-injection tests for tool-using agents: scheduled tool failures in mock worlds, verdicts checked against committed state and the agent's answer, replayable traces, and a local UI.",
+  "version": "2.1.0",
+  "description": "Fault-injection testing for tool-using AI agents: break tool calls on a seeded schedule in offline mock services, grade what the agent did and said against what actually committed, and track reliability over time in a local console with run history, analytics, sweeps, and a CI gate.",
   "license": "MIT",
   "type": "module",
   "bin": {

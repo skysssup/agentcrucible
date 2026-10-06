@@ -24,8 +24,8 @@ export function relTime(iso: string | undefined, now = Date.now()): string {
   if (Number.isNaN(t)) return "";
   const s = Math.max(0, (now - t) / 1000);
   if (s < 45) return "just now";
-  if (s < 3600) return `${Math.round(s / 60)} min ago`;
-  if (s < 86_400) return `${Math.round(s / 3600)} h ago`;
+  if (s < 3600) return `${Math.max(1, Math.floor(s / 60))} min ago`;
+  if (s < 86_400) return `${Math.floor(s / 3600)} h ago`;
   const days = Math.floor(s / 86_400);
   if (days === 1) return "yesterday";
   if (days < 7) return `${days} days ago`;

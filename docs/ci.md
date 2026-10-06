@@ -54,7 +54,7 @@ Outputs: `exit-code` (0, 1, or 2, as below) and `reports` (the directory, for `u
 Any CI runs the CLI directly; the same output appears:
 
 ```yaml
-- run: npm install https://github.com/skysssup/agentcrucible/releases/download/v2.0.0/agentcrucible-2.0.0.tgz
+- run: npm install https://github.com/skysssup/agentcrucible/releases/download/v2.1.0/agentcrucible-2.1.0.tgz
 - run: npx agentcrucible check
 - run: npx agentcrucible run --tag smoke --agent ./agents/my-agent.mjs --baseline agentcrucible-baseline.json --out reports
 - uses: actions/upload-artifact@v4
