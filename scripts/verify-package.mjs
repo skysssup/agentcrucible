@@ -19,7 +19,7 @@ function check(label, ok, detail = "") {
 }
 
 function run(cmd, cmdArgs, cwd) {
-  const r = spawnSync(cmd, cmdArgs, { cwd, encoding: "utf8", env: { ...process.env, NO_COLOR: "1" }, maxBuffer: 64 * 1024 * 1024 });
+  const r = spawnSync(cmd, cmdArgs, { cwd, encoding: "utf8", env: { ...process.env, NO_COLOR: "1", GITHUB_ACTIONS: undefined, GITHUB_STEP_SUMMARY: undefined }, maxBuffer: 64 * 1024 * 1024 });
   return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 

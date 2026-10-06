@@ -383,7 +383,7 @@ async function cmdRun(flags: Flags): Promise<number> {
   else if (reports.length > 1) printSummary(reports, threshold);
   if (!asJson) console.log(`Reports written to ${out}/ (index.html, summary.md, ${agents.length > 1 ? "<agent>/" : ""}*.report.json, *.report.html, *.junit.xml)`);
   if (onGitHub(flags)) {
-    for (const line of githubAnnotations(reports, threshold, comparison)) console.log(line);
+    for (const line of githubAnnotations(reports, threshold, comparison)) log(line);
     githubStepSummary(readFileSync(join(out, "summary.md"), "utf8"));
   }
 
@@ -606,7 +606,7 @@ async function cmdSweep(flags: Flags): Promise<number> {
   const failing = failingCells.length;
   if (!asJson) console.log(failing ? `${failing} of ${result.cells.length} runs at or above --fail-on ${threshold}: exit 2` : `No run at or above --fail-on ${threshold}: exit 0`);
   if (onGitHub(flags)) {
-    for (const c of failingCells) console.log(githubAnnotations.error(`${scenario.id} (${resolved.id}): ${c.kind} on ${result.steps[c.step - 1].tool}#${result.steps[c.step - 1].callIndex}`, `${c.verdict}: ${c.reason}`, scenario.source));
+    for (const c of failingCells) (asJson ? console.error : console.log)(githubAnnotations.error(`${scenario.id} (${resolved.id}): ${c.kind} on ${result.steps[c.step - 1].tool}#${result.steps[c.step - 1].callIndex}`, `${c.verdict}: ${c.reason}`, scenario.source));
     githubStepSummary(`### agentcrucible sweep\n\n${sweepMarkdown(summary)}\n`);
   }
   return failing ? 2 : 0;

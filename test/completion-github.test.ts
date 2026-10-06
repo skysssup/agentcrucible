@@ -152,4 +152,17 @@ describe("GitHub Actions output", () => {
     expect(readFileSync(summary, "utf8")).toContain("### agentcrucible sweep");
     expect(readFileSync(summary, "utf8")).toContain("| `phantom_success` | SILENT_FAILURE |");
   });
+
+  it("keeps --json output parseable under GITHUB_ACTIONS and prints the annotations on stderr", () => {
+    const cwd = tempDir();
+    const env = { GITHUB_ACTIONS: "true", GITHUB_WORKSPACE: cwd };
+    const run = runCli(["run", "--scenario", "payments/timeout-after-commit", "--agent", "naive-retry", "--json", "--out", "reports"], { cwd, env });
+    expect(run.status).toBe(2);
+    expect(JSON.parse(run.stdout).aggregateVerdict).toBe("HARMFUL_ACTION");
+    expect(run.stderr).toMatch(/^::error title=AgentCrucible%3A payments\/timeout-after-commit \(naive-retry\)::HARMFUL_ACTION: /m);
+    const sweep = runCli(["sweep", "--scenario", "payments/timeout-after-commit", "--agent", "cross-checker", "--kinds", "phantom_success", "--json"], { cwd, env });
+    expect(sweep.status).toBe(2);
+    expect(JSON.parse(sweep.stdout).cells.length).toBeGreaterThan(0);
+    expect(sweep.stderr).toMatch(/^::error title=AgentCrucible%3A payments\/timeout-after-commit \(cross-checker\)%3A phantom_success on create_refund#1::SILENT_FAILURE: /m);
+  });
 });
