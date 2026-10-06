@@ -89,7 +89,7 @@ export const LAYOUT_CSS = `
   .panel { padding:0; border:1px solid var(--border); border-radius:var(--r-md); background:var(--surface); min-width:0; }
   .panel-head { display:flex; align-items:center; gap:10px; min-height:44px; padding:0 16px; border-bottom:1px solid var(--border); }
   .panel-head.borderless { border-bottom:0; }
-  .panel-title { display:flex; align-items:center; gap:8px; min-width:0; color:var(--fg); font-size:13px; font-weight:600; white-space:nowrap; }
+  .panel-title { display:flex; flex:none; align-items:center; gap:8px; min-width:0; max-width:100%; overflow:hidden; color:var(--fg); font-size:13px; font-weight:600; white-space:nowrap; }
   .panel-title .i { color:var(--muted); }
   .panel-meta { overflow:hidden; color:var(--muted); font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
   .panel-actions { display:flex; flex:none; align-items:center; gap:6px; margin-left:auto; white-space:nowrap; }

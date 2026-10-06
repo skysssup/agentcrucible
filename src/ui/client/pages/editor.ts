@@ -397,6 +397,7 @@ function editorHtml(): string {
   const id = draftId(validation);
   const dirty = isDirty();
   const head = pageHead({
+    eyebrow: `${icon("code", 11)}Design`,
     title: "Scenario editor",
     desc: `Checked as you type by the same parser the CLI uses. Run the draft against any agents and replay a result, then ${store.meta.scenarioDir ? `save it to <code>${esc(store.meta.scenarioDir)}</code>` : "download it (add scenarioDirs to the config file to save from here)"}.`,
     meta: [metaItem("file", `<code>${esc(session.source ? `${session.source}.yaml` : "new scenario")}</code>`, session.source ? "Opened from the project" : "Not saved yet"), metaItem("folder", store.meta.scenarioDir ? `Saves to <code>${esc(store.meta.scenarioDir)}</code>` : "No scenario directory configured", store.meta.scenarioRoots.join("\n"))],

@@ -220,7 +220,7 @@ const page: Page = {
       { title: "By kind", icon: "pieChart", meta: esc(spanLabel) },
       inSpan.length
         ? barList(
-        categoryCounts.filter((c) => c.n).map((c) => ({ label: `${icon(CATEGORY_ICON[c.id] ?? "info", 12)} ${esc(c.label)}`, value: c.n, display: `${num(c.n)} · ${Math.round((c.n / Math.max(1, inSpan.length)) * 100)}%`, href: `#/activity?category=${c.id}`, color: c.id === "regressions" ? "var(--harm)" : undefined })),
+        categoryCounts.filter((c) => c.n).map((c) => ({ label: `${icon(CATEGORY_ICON[c.id] ?? "info", 12)} ${esc(c.label)}`, value: c.n, display: `${num(c.n)} · ${Math.round((c.n / Math.max(1, inSpan.length)) * 100)}%`, href: `#/activity?category=${c.id}`, color: c.id === "regressions" ? "var(--harm-bg)" : undefined })),
         { max }
       )
         : '<p class="muted small">No events in this period.</p>'

@@ -270,6 +270,7 @@ const page: Page = {
     const lastAt = [...health.values()].reduce<string | undefined>((max, h) => (h.lastAt && (!max || h.lastAt > max) ? h.lastAt : max), undefined);
     const shown = filterScenarios(all, current()).length;
     const head = pageHead({
+      eyebrow: `${icon("layers", 11)}Design`,
       title: "Scenarios",
       desc: all.length
         ? `${plural(all.length, "scenario")} across ${plural(worlds.size, "world")}: ${bundled} bundled with AgentCrucible and ${all.length - bundled} written for this project. Each one breaks tool calls on a fixed schedule and states what a correct run commits.`

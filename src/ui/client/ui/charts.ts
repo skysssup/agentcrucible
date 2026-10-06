@@ -304,7 +304,7 @@ export function barList(items: BarItem[], o: { max?: number } = {}): string {
   return `<ul class="barlist">${items
     .map((i) => {
       const inner = `<span class="fill" style="width:${((i.value / max) * 100).toFixed(1)}%;--bl:${i.color ?? "var(--surface-3)"}"></span><span class="bl-label">${i.label}</span><span class="bl-val">${esc(i.display)}</span>`;
-      return `<li${i.tip ? ` data-tip="${esc(i.tip)}"` : ""}>${i.href ? `<a href="${esc(i.href)}" style="display:contents">${inner}</a>` : inner}</li>`;
+      return `<li${i.tip ? ` data-tip="${esc(i.tip)}"` : ""}>${i.href ? `<a href="${esc(i.href)}">${inner}</a>` : inner}</li>`;
     })
     .join("")}</ul>`;
 }

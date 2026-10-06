@@ -171,6 +171,7 @@ export function coverageBody(c: Coverage, v: CoverageView, notice = ""): string 
   const { tools, faulted } = toolCount(c);
   const first = groups.find((g) => g.id === "tools" || g.id === "worlds" || g.id === "kinds");
   const head = pageHead({
+    eyebrow: `${icon("shieldCheck", 11)}Design`,
     title: "Coverage",
     desc: "What the scenario set exercises: which tools each fault kind hits, which agents are held to a verdict, and what nothing covers yet.",
     meta: [metaItem("layers", `<b class="fg">${plural(c.scenarios.length, "scenario")}</b>`), metaItem("zap", `<b class="fg">${faulted}</b> of ${plural(tools, "tool")} faulted`), metaItem("alert", groups.length ? `<b class="fg">${plural(groups.length, "gap group")}</b>` : "No gaps")],

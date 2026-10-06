@@ -36,6 +36,7 @@ function pageFor(route: string): Page | undefined {
 }
 
 async function render(opts: { keepScroll?: boolean } = {}): Promise<void> {
+  if (!document.getElementById("view")) return;
   const ticket = ++renders;
   const ctx = parseHash(location.hash || store.prefs.landing || "");
   const page = pageFor(ctx.route);

@@ -204,6 +204,7 @@ const page: Page = {
     data = { meta, coverage: store.coverage, obs: observations(store.runs, store.saved) };
     const n = counts(meta);
     const head = pageHead({
+      eyebrow: `${icon("book", 11)}Design`,
       title: "Catalog",
       desc: `${LABELS[section].desc} Everything a scenario can name: the built-ins and the extensions in your config file.`,
       meta: [metaItem("bot", `<b class="fg">${plural(n.agents, "agent")}</b>`), metaItem("cube", `<b class="fg">${plural(n.worlds, "world")}</b>, ${plural(meta.worlds.reduce((k, w) => k + w.tools.length, 0), "tool")}`), metaItem("zap", `<b class="fg">${plural(n.faults, "fault kind")}</b>`)],

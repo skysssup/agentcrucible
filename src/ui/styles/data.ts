@@ -115,7 +115,7 @@ export const DATA_CSS = `
   .barlist .bl-label { display:flex; align-items:center; gap:8px; overflow:hidden; color:var(--fg); text-overflow:ellipsis; white-space:nowrap; }
   .barlist .bl-label code { overflow:hidden; text-overflow:ellipsis; }
   .barlist .bl-val { color:var(--fg-2); font:500 12px var(--font-mono); white-space:nowrap; }
-  .barlist a { color:inherit; text-decoration:none; }
+  .barlist li > a { position:relative; display:grid; grid-column:1 / -1; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:12px; height:100%; margin:0 -8px; padding:0 8px; color:inherit; text-decoration:none; }
   .barlist li:has(a:hover) { background:var(--surface-2); }
 
   .hm-grid { border-collapse:separate; border-spacing:3px; }
