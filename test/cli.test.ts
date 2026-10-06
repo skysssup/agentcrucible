@@ -259,7 +259,7 @@ describe("usage and input errors", () => {
     [["compare", "--scenario", "rate-limit"], /"rate-limit" matches 3 scenarios \(email\/rate-limit, filesystem\/rate-limit, payments\/rate-limit\)/],
     [["compare", "--scenario", "payments/rate-limit", "--agents", "naive-retry,robot"], /unknown agent "robot"/],
     [["demo", "--scenario", "payments"], /demo needs an exact scenario id/],
-    [["agents", "--trials", "2"], /agents does not accept --trials \(options: --json, --config\)/],
+    [["agents", "--trials", "2"], /agents does not accept --trials \(options: --json, --ids, --config\)/],
     [["run", "--scenario", "payments/rate-limit", "--agent", "liar", "--agents", "liar"], /use --agent <id\|path> for one agent or --agents a,b for several, not both/],
     [["run", "--scenario", "payments/rate-limit", "--agents", " , "], /--agents needs at least one agent/],
     [["run", "--scenario", "payments/rate-limit", "--timeout", "1.5"], /--timeout: Invalid timeout: 1.5 \(must be a whole number of milliseconds, at least 1\)/],

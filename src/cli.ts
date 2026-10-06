@@ -9,7 +9,7 @@ import { worstTrial } from "./describe.js";
 import type { RunIndexEntry } from "./html.js";
 import { initProject } from "./init.js";
 import { parseMaxSteps, parseModelAgentId, registerModelAgent, type ModelAgentOptions } from "./models.js";
-import { formatTrialDetail, painter, printReport, readReportFile, shouldColor, writeHtmlReport, writeJsonReport, writeJUnitReport, writeRunIndex } from "./report.js";
+import { formatReport, formatTrialDetail, painter, printReport, readReportFile, shouldColor, writeHtmlReport, writeJsonReport, writeJUnitReport, writeRunIndex } from "./report.js";
 import { builtinRegistry, isModulePath, loadAgentModule, loadExtension, type Registry } from "./registry.js";
 import { replayReport } from "./replay.js";
 import { MAX_CONCURRENCY, parseConcurrency, parseTimeout, parseTrials, runMatrix } from "./runner.js";
@@ -19,6 +19,9 @@ import { writeRunSummary } from "./summary.js";
 import { formatSweep, runSweep, summarizeSweep, sweepMarkdown, parseSweepSteps, type SweepCell } from "./sweep.js";
 import { computeCoverage, formatCoverage } from "./coverage.js";
 import { scenarioJsonSchema } from "./scenario-schema.js";
+import { COMPLETION_SHELLS, completionScript, type CompletionShell } from "./completion.js";
+import { githubAnnotations, githubStepSummary } from "./github.js";
+import { serveMcp } from "./mcp.js";
 import { startUi, type UiServer } from "./ui/server.js";
 import { atLeast } from "./verdict.js";
 import { VERSION } from "./version.js";
@@ -33,6 +36,8 @@ const UI_PORT = 7357;
 type FlagSpec = Record<string, "value" | "boolean">;
 type Flags = Record<string, string | true>;
 interface Command {
+  /** One line for shell completion. */
+  description: string;
   flags: FlagSpec;
   /** Name of the one positional argument the command takes, if any. */
   positional?: string;
@@ -47,9 +52,10 @@ const MODEL: FlagSpec = { "--record": "value", "--system": "value", "--max-steps
 /** Flags of every command that runs agents. */
 const RUNNING: FlagSpec = { "--trials": "value", "--timeout": "value", "--concurrency": "value", "--config": "value", ...MODEL };
 const COMMANDS: Record<string, Command> = {
-  demo: { flags: { "--scenario": "value", "--out": "value", "--config": "value" }, run: cmdDemo },
-  list: { flags: { "--tag": "value", "--json": "boolean", "--config": "value" }, run: cmdList },
+  demo: { description: "Run a scenario's expected agents side by side and explain each verdict", flags: { "--scenario": "value", "--out": "value", "--config": "value" }, run: cmdDemo },
+  list: { description: "List scenarios", flags: { "--tag": "value", "--json": "boolean", "--ids": "boolean", "--tags": "boolean", "--config": "value" }, run: cmdList },
   run: {
+    description: "Run agents against scenarios and write reports",
     flags: {
       ...SELECT,
       ...RUNNING,
@@ -62,35 +68,41 @@ const COMMANDS: Record<string, Command> = {
       "--fail-on": "value",
       "--baseline": "value",
       "--save-baseline": "value",
+      "--github": "boolean",
     },
     run: cmdRun,
   },
   compare: {
+    description: "Run several agents on one scenario with the same seed",
     flags: { ...RUNNING, "--scenario": "value", "--agents": "value", "--seed": "value", "--json": "boolean", "--fail-on": "value" },
     run: cmdCompare,
   },
-  check: { flags: { ...SELECT, ...RUNNING, "--json": "boolean" }, run: cmdCheck },
+  check: { description: "Verify each scenario's expected_verdicts", flags: { ...SELECT, ...RUNNING, "--json": "boolean", "--github": "boolean" }, run: cmdCheck },
   sweep: {
-    flags: { ...RUNNING, "--scenario": "value", "--agent": "value", "--kinds": "value", "--steps": "value", "--seed": "value", "--out": "value", "--json": "boolean", "--fail-on": "value" },
+    description: "Inject every fault kind at every step of an agent's path",
+    flags: { ...RUNNING, "--scenario": "value", "--agent": "value", "--kinds": "value", "--steps": "value", "--seed": "value", "--out": "value", "--json": "boolean", "--fail-on": "value", "--github": "boolean" },
     run: cmdSweep,
   },
-  coverage: { flags: { "--tag": "value", "--json": "boolean", "--config": "value" }, run: cmdCoverage },
-  inspect: { flags: { "--trial": "value", "--call": "value", "--scenario": "value" }, positional: "report", run: cmdInspect },
-  replay: { flags: { "--scenario": "value", "--json": "boolean", "--config": "value" }, positional: "report", run: cmdReplay },
-  validate: { flags: { "--json": "boolean", "--config": "value" }, positional: "path", optional: true, run: cmdValidate },
+  coverage: { description: "Show what the scenarios cover and what nothing covers", flags: { "--tag": "value", "--json": "boolean", "--config": "value" }, run: cmdCoverage },
+  inspect: { description: "Show a saved report call by call", flags: { "--trial": "value", "--call": "value", "--scenario": "value" }, positional: "report", run: cmdInspect },
+  replay: { description: "Re-execute a saved report's tool calls", flags: { "--scenario": "value", "--json": "boolean", "--config": "value" }, positional: "report", run: cmdReplay },
+  validate: { description: "Check scenario files without running them", flags: { "--json": "boolean", "--config": "value" }, positional: "path", optional: true, run: cmdValidate },
+  mcp: { description: "Serve a scenario's tools to an MCP client over stdio and grade its answer", flags: { "--scenario": "value", "--seed": "value", "--out": "value", "--agent-id": "value", "--config": "value" }, run: cmdMcp },
   ui: {
+    description: "Browse, run, compare, and edit scenarios in a local web UI",
     flags: { "--port": "value", "--host": "value", "--out": "value", "--baseline": "value", "--agents": "value", "--fail-on": "value", "--config": "value", ...MODEL },
     run: cmdUi,
   },
-  init: { flags: {}, run: cmdInit },
-  agents: { flags: { "--json": "boolean", "--config": "value" }, run: cmdAgents },
-  worlds: { flags: { "--json": "boolean", "--config": "value" }, run: cmdWorlds },
-  faults: { flags: { "--json": "boolean", "--config": "value" }, run: cmdFaults },
-  config: { flags: { "--config": "value" }, run: cmdConfig },
-  schema: { flags: { "--config": "value" }, run: cmdSchema },
-  examples: { flags: {}, run: () => (console.log(EXAMPLES), 0) },
-  version: { flags: {}, run: () => (console.log(`agentcrucible ${VERSION}`), 0) },
-  help: { flags: {}, run: () => (console.log(HELP), 0) },
+  init: { description: "Write a starter config, scenario, and agent", flags: {}, run: cmdInit },
+  agents: { description: "List agents", flags: { "--json": "boolean", "--ids": "boolean", "--config": "value" }, run: cmdAgents },
+  worlds: { description: "List mock worlds with their tools and record kinds", flags: { "--json": "boolean", "--config": "value" }, run: cmdWorlds },
+  faults: { description: "List fault kinds", flags: { "--json": "boolean", "--ids": "boolean", "--config": "value" }, run: cmdFaults },
+  config: { description: "Show the config file in use", flags: { "--config": "value" }, run: cmdConfig },
+  schema: { description: "Print the JSON Schema for scenario files", flags: { "--config": "value" }, run: cmdSchema },
+  completion: { description: "Print a shell completion script", flags: {}, positional: "shell", optional: true, run: cmdCompletion },
+  examples: { description: "Print example commands", flags: {}, run: () => (console.log(EXAMPLES), 0) },
+  version: { description: "Print the version", flags: {}, run: () => (console.log(`agentcrucible ${VERSION}`), 0) },
+  help: { description: "Print usage", flags: {}, run: () => (console.log(HELP), 0) },
 };
 const ALIASES: Record<string, string> = { "--version": "version", "-V": "version", "--help": "help", "-h": "help" };
 
@@ -153,6 +165,11 @@ interface Context {
   registry: Registry;
   /** Settings for agents named provider:model, from the flags and the config file. */
   model: ModelAgentOptions;
+}
+
+/** True under GitHub Actions or with --github: results are also printed as workflow annotations and a step summary. */
+function onGitHub(flags: Flags): boolean {
+  return flags["--github"] === true || process.env.GITHUB_ACTIONS === "true";
 }
 
 /** The config file (from --config or the working directory) and a registry with its extensions loaded. */
@@ -363,6 +380,10 @@ async function cmdRun(flags: Flags): Promise<number> {
   else if (agents.length > 1) printMatrix(reports, agents, threshold);
   else if (reports.length > 1) printSummary(reports, threshold);
   if (!asJson) console.log(`Reports written to ${out}/ (index.html, summary.md, ${agents.length > 1 ? "<agent>/" : ""}*.report.json, *.report.html, *.junit.xml)`);
+  if (onGitHub(flags)) {
+    for (const line of githubAnnotations(reports, threshold, comparison)) console.log(line);
+    githubStepSummary(readFileSync(join(out, "summary.md"), "utf8"));
+  }
 
   if (comparison && baselinePath) {
     writeFileSync(join(out, "baseline-comparison.json"), `${JSON.stringify(comparison, null, 2)}\n`);
@@ -501,6 +522,14 @@ async function cmdCheck(flags: Flags): Promise<number> {
     const unchecked = scenarios.filter((s) => Object.keys(s.expectedVerdicts).length === 0).map((s) => s.id);
     if (unchecked.length) console.log(`no expected_verdicts: ${unchecked.join(", ")}`);
     console.log(`${rows.length - failed.length}/${rows.length} checks pass (trials=${trialCount}, default seeds)`);
+    if (onGitHub(flags)) {
+      for (const r of failed) {
+        const scenario = scenarios.find((s) => s.id === r.scenarioId)!;
+        const problems = [...(r.actual === r.expected ? [] : [`expected ${r.expected}, got ${r.actual}`]), ...r.unexercisedFaults.map((i) => `faults[${i}] never fired`)];
+        console.log(githubAnnotations.error(`${r.scenarioId} (${r.agentId})`, problems.join("; "), scenario.source));
+      }
+      githubStepSummary(`### agentcrucible check\n\n${rows.length - failed.length}/${rows.length} checks pass.${failed.length ? `\n\n${failed.map((r) => `- **${r.scenarioId}** ${r.agentId}: ${r.actual}${r.actual === r.expected ? "" : ` (expected ${r.expected})`}${r.unexercisedFaults.map((i) => `, faults[${i}] never fired`).join("")}`).join("\n")}` : ""}\n`);
+    }
   }
   return failed.length ? 2 : 0;
 }
@@ -570,8 +599,13 @@ async function cmdSweep(flags: Flags): Promise<number> {
     console.log(formatSweep(summary, shouldColor(process.stdout)));
     if (out) console.log(`\nWritten to ${out}/ (sweep.json, sweep.md, cells/<kind>@<step>.report.json)`);
   }
-  const failing = result.cells.filter((c) => c.fired && atLeast(c.verdict, threshold)).length;
+  const failingCells = result.cells.filter((c) => c.fired && atLeast(c.verdict, threshold));
+  const failing = failingCells.length;
   if (!asJson) console.log(failing ? `${failing} of ${result.cells.length} runs at or above --fail-on ${threshold}: exit 2` : `No run at or above --fail-on ${threshold}: exit 0`);
+  if (onGitHub(flags)) {
+    for (const c of failingCells) console.log(githubAnnotations.error(`${scenario.id} (${resolved.id}): ${c.kind} on ${result.steps[c.step - 1].tool}#${result.steps[c.step - 1].callIndex}`, `${c.verdict}: ${c.reason}`, scenario.source));
+    githubStepSummary(`### agentcrucible sweep\n\n${sweepMarkdown(summary)}\n`);
+  }
   return failing ? 2 : 0;
 }
 
@@ -635,6 +669,14 @@ async function cmdList(flags: Flags): Promise<number> {
   const tag = str(flags, "--tag");
   const root = scenarioRoots(cfg);
   const scenarios = tag ? findScenarios({ tag, root, registry }) : loadAllScenarios(root, registry);
+  if (flags["--ids"] === true) {
+    for (const s of scenarios) console.log(s.id);
+    return 0;
+  }
+  if (flags["--tags"] === true) {
+    for (const t of [...new Set(scenarios.flatMap((s) => s.tags))].sort()) console.log(t);
+    return 0;
+  }
   if (flags["--json"] === true) {
     console.log(
       JSON.stringify(
@@ -666,6 +708,10 @@ async function cmdList(flags: Flags): Promise<number> {
 
 async function cmdAgents(flags: Flags): Promise<number> {
   const { registry } = await context(flags);
+  if (flags["--ids"] === true) {
+    for (const id of registry.agents.keys()) console.log(id);
+    return 0;
+  }
   if (flags["--json"] === true) {
     console.log(JSON.stringify([...registry.agents].map(([id, e]) => ({ id, description: e.value.description, source: e.source })), null, 2));
     return 0;
@@ -704,6 +750,10 @@ async function cmdWorlds(flags: Flags): Promise<number> {
 
 async function cmdFaults(flags: Flags): Promise<number> {
   const { registry } = await context(flags);
+  if (flags["--ids"] === true) {
+    for (const kind of registry.faults.keys()) console.log(kind);
+    return 0;
+  }
   if (flags["--json"] === true) {
     console.log(JSON.stringify([...registry.faults].map(([kind, e]) => ({ kind, stage: e.value.stage, description: e.value.description, params: e.value.params ?? null, source: e.source })), null, 2));
     return 0;
@@ -750,6 +800,27 @@ async function cmdValidate(flags: Flags, path?: string): Promise<number> {
         : `${files.length} scenario file(s) valid`
   );
   return failed.length || files.length === 0 ? 1 : 0;
+}
+
+/** Serves one trial of a scenario to an MCP client on stdin/stdout, grades the submitted answer, and exits. */
+async function cmdMcp(flags: Flags): Promise<number> {
+  const { cfg, registry } = await context(flags);
+  const id = str(flags, "--scenario");
+  if (!id) throw new UsageError("mcp needs --scenario <id>");
+  const scenario = oneScenario(id, cfg, registry);
+  const out = str(flags, "--out");
+  if (out) ensureWritableDir(out);
+  const log = (line: string) => console.error(line);
+  log(`agentcrucible ${VERSION} mcp: serving ${scenario.id} (${scenario.worlds.join("+")}) on stdio; call ${"submit_answer"} to finish`);
+  const report = await serveMcp({ scenario, registry, seed: str(flags, "--seed"), agentId: str(flags, "--agent-id") ?? "mcp-client", input: process.stdin, output: process.stdout, log });
+  if (out) {
+    writeJsonReport(report, out);
+    writeHtmlReport(report, out);
+    writeJUnitReport(report, out, failOn(flags, cfg));
+    log(`Report written to ${out}/`);
+  }
+  log(formatReport(report, shouldColor(process.stderr)));
+  return atLeast(report.aggregateVerdict, failOn(flags, cfg)) ? 2 : 0;
 }
 
 /** Serves the local UI until interrupted. */
@@ -828,6 +899,13 @@ async function cmdSchema(flags: Flags): Promise<number> {
   return 0;
 }
 
+function cmdCompletion(_flags: Flags, shell?: string): number {
+  if (!(COMPLETION_SHELLS as readonly string[]).includes(shell ?? "")) throw new UsageError(`completion needs a shell: agentcrucible completion <${COMPLETION_SHELLS.join("|")}>`);
+  const commands = Object.entries(COMMANDS).map(([name, c]) => ({ name, description: c.description, flags: Object.keys(c.flags) }));
+  process.stdout.write(completionScript(shell as CompletionShell, commands, VERDICTS));
+  return 0;
+}
+
 function cmdConfig(flags: Flags): number {
   const explicit = str(flags, "--config");
   const path = explicit ?? findConfigPath();
@@ -856,6 +934,7 @@ Commands:
   inspect     Show a saved report call by call (inspect <report.json> [--trial n] [--call call_2])
   replay      Re-execute a saved report's tool calls and confirm they reproduce (replay <report.json>)
   validate    Check scenario files without running them (validate [file or directory])
+  mcp         Serve a scenario's tools to an MCP client over stdio, then grade the answer it submits
   ui          Browse, run, compare, and edit scenarios in a local web UI
   init        Write a starter config, scenario, and agent into the current directory
   agents      List agents (built-in and from extensions; --json)
@@ -863,6 +942,7 @@ Commands:
   faults      List fault kinds (--json)
   config      Show the config file in use
   schema      Print the JSON Schema for scenario files (with --config, including extension worlds and faults)
+  completion  Print a completion script (completion bash|zsh|fish)
   examples    Print example commands
   version     Print the version
 
@@ -882,6 +962,7 @@ run options:
   --fail-on <verdict>    Exit 2 when a verdict is at least this severe (default SILENT_FAILURE)
   --save-baseline <file> Write the results as a baseline to compare later runs with
   --baseline <file>      Compare with a baseline; exit 2 only for regressions and new failing scenarios
+  --github               Also print GitHub Actions annotations and write the step summary (automatic under GITHUB_ACTIONS)
   --config <path>        Use this config file instead of searching the current directory
 
 model agents (run, compare, check, sweep, ui), with OPENAI_API_KEY / ANTHROPIC_API_KEY and optional *_BASE_URL:
@@ -894,6 +975,8 @@ check options:   --scenario, --tag, --trials (default ${CHECK_TRIALS}), --timeou
 sweep options:   --scenario <id> (required), --agent, --kinds a,b (default: every fault kind), --steps <n> (default 12),
                  --trials, --seed, --timeout, --concurrency, --out <dir> (sweep.json, sweep.md, cells/), --json, --fail-on, --config
 coverage options: --tag, --json, --config
+mcp options:     --scenario <id> (required), --seed <text>, --out <dir> to write the report, --agent-id <name> (default mcp-client), --config
+list options:    --tag, --json, --ids (one id per line), --tags (one tag per line); agents and faults take --ids too
 demo options:    --scenario (default ${DEMO_SCENARIO}), --out <dir> to also write reports, --config
 inspect options: --trial <n> (default: the worst trial), --call <id>, --scenario <id> for multi-report files
 replay options:  --scenario <id>, --json, --config (to load extension worlds and faults)

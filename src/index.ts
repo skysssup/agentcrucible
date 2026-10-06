@@ -49,3 +49,8 @@ export { createModelAgent, registerModelAgent, parseModelAgentId, parseMaxSteps,
 export type { ModelAgentSpec, ModelAgentOptions, ModelProvider } from "./models.js";
 export { describeUsage } from "./describe.js";
 export { scenarioJsonSchema, SCENARIO_SCHEMA_URL } from "./scenario-schema.js";
+export { serveMcp, MCP_PROTOCOL_VERSION, SUBMIT_TOOL } from "./mcp.js";
+export type { McpOptions } from "./mcp.js";
+export { githubAnnotations, githubStepSummary } from "./github.js";
+export { completionScript, COMPLETION_SHELLS } from "./completion.js";
+export type { CompletionShell, CompletionCommand } from "./completion.js";
