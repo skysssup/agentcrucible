@@ -143,6 +143,18 @@ describe("UI server security", () => {
     ["/api/baseline/save", { keys: "mem-1" }],
     ["/api/baseline/save", {}],
     ["/api/scenario/save", { text: null }],
+    ["/api/sweep", {}],
+    ["/api/sweep", { scenarioId: "payments/timeout-after-commit" }],
+    ["/api/sweep", { scenarioId: 5, agentId: "honest-stop" }],
+    ["/api/sweep", { scenarioId: "payments/timeout-after-commit", agentId: "nobody" }],
+    ["/api/sweep", { scenarioId: "payments/timeout-after-commit", agentId: "honest-stop", kinds: "timeout" }],
+    ["/api/sweep", { scenarioId: "payments/timeout-after-commit", agentId: "honest-stop", kinds: [] }],
+    ["/api/sweep", { scenarioId: "payments/timeout-after-commit", agentId: "honest-stop", kinds: ["nope"] }],
+    ["/api/sweep", { scenarioId: "payments/timeout-after-commit", agentId: "honest-stop", steps: 0 }],
+    ["/api/sweep", { scenarioId: "payments/timeout-after-commit", agentId: "honest-stop", steps: 65 }],
+    ["/api/sweep", { scenarioId: "payments/timeout-after-commit", agentId: "honest-stop", trials: 0 }],
+    ["/api/sweep", { scenarioId: "payments/timeout-after-commit", agentId: "honest-stop", seed: " " }],
+    ["/api/sweep", { scenarioId: "payments/timeout-after-commit", agentId: "honest-stop", seed: 5 }],
   ])("answers %s %j with 400, not a crash", async (path, body) => {
     const res = await api(path, body);
     expect(res.status, JSON.stringify(res.json)).toBe(400);
@@ -164,6 +176,7 @@ describe("UI API", () => {
     expect(json.agents.map((a: { id: string }) => a.id)).toContain("cross-checker");
     expect(json.worlds.find((w: { name: string }) => w.name === "payments").tools.map((t: { name: string }) => t.name)).toContain("create_refund");
     expect(json.faults.map((f: { kind: string }) => f.kind)).toContain("timeout_after_commit");
+    expect(json.faults.find((f: { kind: string }) => f.kind === "timeout")).toMatchObject({ params: [], required: [] });
     expect(json.scenarioDir).toBe(join(dir, "scenarios"));
     expect(json.demo).toEqual({ scenario: "payments/timeout-after-commit", seed: "demo" });
   });
@@ -227,6 +240,59 @@ describe("UI API", () => {
     const replay = await api("/api/replay", { key: file.key });
     expect(replay.json).toMatchObject({ reproduced: true, trials: [{ reproduced: true }, { reproduced: true }] });
     expect((await api(`/api/report?key=${encodeURIComponent(file.key)}`)).json.aggregateVerdict).toBe("HARMFUL_ACTION");
+  });
+
+  it("sweeps a scenario, keeps the cell reports, and lists the sweep", async () => {
+    expect((await api("/api/sweeps")).json).toEqual([]);
+    expect((await api("/api/sweep", { scenarioId: "nope/none", agentId: "honest-stop" })).status).toBe(404);
+    const before = (await api("/api/reports")).json.memory.length;
+    const res = await api("/api/sweep", { scenarioId: "payments/timeout-after-commit", agentId: "cross-checker", kinds: ["timeout", "phantom_success"], steps: 3, seed: "sw" });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const sweep = res.json;
+    expect(sweep).toMatchObject({ sweepId: "sweep-1", scenarioId: "payments/timeout-after-commit", agentId: "cross-checker", seed: "sw", trials: 1 });
+    expect(sweep.kinds.map((k: { kind: string }) => k.kind)).toEqual(["timeout", "phantom_success"]);
+    expect(sweep.steps).toEqual([{ step: 1, tool: "create_refund", callIndex: 1, mutating: true }]);
+    expect(sweep.cells.map((c: { kind: string; step: number; verdict: string }) => [c.kind, c.step, c.verdict])).toEqual([
+      ["timeout", 1, "SAFE_FAILURE"],
+      ["phantom_success", 1, "SILENT_FAILURE"],
+    ]);
+    expect(sweep.score).toMatchObject({ runs: 2, safe: 1, critical: 1 });
+    expect(sweep.baseline.verdict).toBe("SAFE_SUCCESS");
+    expect(Date.parse(sweep.startedAt)).not.toBeNaN();
+
+    const cell = await api(`/api/report?key=${sweep.cells[1].key}`);
+    expect(cell.json).toMatchObject({ scenarioId: "payments/timeout-after-commit", agentId: "cross-checker", aggregateVerdict: "SILENT_FAILURE", faults: [{ target: "create_refund", kind: "phantom_success", onCall: 1 }] });
+    expect((await api(`/api/report?key=${sweep.baselineKey}`)).json.faults).toEqual([]);
+    expect((await api("/api/reports")).json.memory.length).toBe(before);
+    expect((await api("/api/save", { keys: [sweep.cells[0].key] })).status).toBe(400);
+
+    const list = await api("/api/sweeps");
+    expect(list.json).toHaveLength(1);
+    expect(list.json[0]).toMatchObject({ sweepId: "sweep-1", scenarioId: "payments/timeout-after-commit", cellCount: 2 });
+    expect(list.json[0].cells).toBeUndefined();
+    expect((await api("/api/sweep?id=sweep-1")).json).toEqual(sweep);
+    expect((await api("/api/sweep?id=sweep-99")).status).toBe(404);
+    expect((await api("/api/sweep")).status).toBe(400);
+    const md = await api("/api/sweep/markdown?id=sweep-1");
+    expect(md.json.markdown).toContain("**Sweep of `payments/timeout-after-commit` with `cross-checker`**: 1/2 runs ended safe (50.0%), 1 critical.");
+    expect(md.json.markdown).toContain("| `phantom_success` | SILENT_FAILURE |");
+
+    const second = await api("/api/sweep", { scenarioId: "payments/timeout-after-commit", agentId: "honest-stop", kinds: ["omission"] });
+    expect(second.json.sweepId).toBe("sweep-2");
+    expect(second.json.cells).toHaveLength(1);
+    expect((await api("/api/sweeps")).json.map((x: { sweepId: string }) => x.sweepId)).toEqual(["sweep-2", "sweep-1"]);
+    expect((await api(`/api/report?key=${sweep.cells[0].key}`)).status).toBe(200);
+  });
+
+  it("reports what the scenarios cover", async () => {
+    const { status, json } = await api("/api/coverage");
+    expect(status).toBe(200);
+    expect(json.scenarios).toContain("payments/timeout-after-commit");
+    expect(json.worlds.map((w: { name: string }) => w.name)).toContain("payments");
+    expect(json.faultKinds.find((k: { kind: string }) => k.kind === "timeout_after_commit").scenarios).toContain("payments/timeout-after-commit");
+    expect(json.matrix).toContainEqual(expect.objectContaining({ kind: "timeout_after_commit", world: "payments", tool: "create_refund" }));
+    expect(json.agents.find((a: { id: string }) => a.id === "naive-retry").scenarios.length).toBeGreaterThan(0);
+    expect(json.gaps).toMatchObject({ faultKinds: expect.any(Array), tools: expect.any(Array), withoutExpect: expect.any(Array) });
   });
 
   it("keeps each run, newest first, for the Runs page", async () => {
