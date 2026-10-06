@@ -18,6 +18,7 @@ import { VERDICTS, type RunReport, type Scenario, type Verdict } from "./types.j
 import { writeRunSummary } from "./summary.js";
 import { formatSweep, runSweep, summarizeSweep, sweepMarkdown, parseSweepSteps, type SweepCell } from "./sweep.js";
 import { computeCoverage, formatCoverage } from "./coverage.js";
+import { scenarioJsonSchema } from "./scenario-schema.js";
 import { startUi, type UiServer } from "./ui/server.js";
 import { atLeast } from "./verdict.js";
 import { VERSION } from "./version.js";
@@ -86,6 +87,7 @@ const COMMANDS: Record<string, Command> = {
   worlds: { flags: { "--json": "boolean", "--config": "value" }, run: cmdWorlds },
   faults: { flags: { "--json": "boolean", "--config": "value" }, run: cmdFaults },
   config: { flags: { "--config": "value" }, run: cmdConfig },
+  schema: { flags: { "--config": "value" }, run: cmdSchema },
   examples: { flags: {}, run: () => (console.log(EXAMPLES), 0) },
   version: { flags: {}, run: () => (console.log(`agentcrucible ${VERSION}`), 0) },
   help: { flags: {}, run: () => (console.log(HELP), 0) },
@@ -819,6 +821,13 @@ Next steps:
   return 0;
 }
 
+/** JSON Schema for scenario files, with the registry's worlds and fault kinds (extensions included). */
+async function cmdSchema(flags: Flags): Promise<number> {
+  const { registry } = await context(flags);
+  console.log(JSON.stringify(scenarioJsonSchema(registry), null, 2));
+  return 0;
+}
+
 function cmdConfig(flags: Flags): number {
   const explicit = str(flags, "--config");
   const path = explicit ?? findConfigPath();
@@ -853,6 +862,7 @@ Commands:
   worlds      List mock worlds with their tools and record kinds (--json)
   faults      List fault kinds (--json)
   config      Show the config file in use
+  schema      Print the JSON Schema for scenario files (with --config, including extension worlds and faults)
   examples    Print example commands
   version     Print the version
 

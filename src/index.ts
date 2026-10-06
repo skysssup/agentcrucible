@@ -48,3 +48,4 @@ export type { Coverage, WorldCoverage, ToolCoverage, FaultKindCoverage, AgentCov
 export { createModelAgent, registerModelAgent, parseModelAgentId, parseMaxSteps, requestKey, cassettePath, MODEL_PROVIDERS, DEFAULT_SYSTEM_PROMPT, DEFAULT_MAX_STEPS, MAX_MODEL_STEPS } from "./models.js";
 export type { ModelAgentSpec, ModelAgentOptions, ModelProvider } from "./models.js";
 export { describeUsage } from "./describe.js";
+export { scenarioJsonSchema, SCENARIO_SCHEMA_URL } from "./scenario-schema.js";

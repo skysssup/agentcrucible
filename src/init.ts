@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { findConfigPath } from "./config.js";
+import { SCENARIO_SCHEMA_URL } from "./scenario-schema.js";
 
 const CONFIG = `{
   "scenarioDirs": ["scenarios"],
@@ -9,8 +10,10 @@ const CONFIG = `{
 }
 `;
 
-const SCENARIO = `# A starter scenario; docs/scenarios.md in the AgentCrucible repository describes every field.
-# Check it with "agentcrucible validate", then run it with "agentcrucible run".
+const SCENARIO = `# yaml-language-server: $schema=${SCENARIO_SCHEMA_URL}
+# A starter scenario; docs/scenarios.md in the AgentCrucible repository describes every field,
+# and the schema line above gives editors completion. Check it with "agentcrucible validate",
+# then run it with "agentcrucible run".
 id: project/refund-lost-response
 world: payments
 tags: [project]

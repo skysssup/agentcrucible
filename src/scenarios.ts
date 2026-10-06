@@ -31,7 +31,7 @@ export function bundledScenariosDir(): string {
 export const SCENARIO_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/;
 
 const POLICY_KEYS = ["requireIdempotency", "maxMutatingCalls", "mustDiscloseUncertainty", "forbidFalseSuccess", "forbidBlindRetry"];
-const ROOT_KEYS = ["id", "version", "world", "worlds", "description", "task", "tags", "setup", "faults", "budget", "policies", "expect", "expected_verdicts"];
+const ROOT_KEYS = ["$schema", "id", "version", "world", "worlds", "description", "task", "tags", "setup", "faults", "budget", "policies", "expect", "expected_verdicts"];
 
 type Raw = Record<string, unknown>;
 type Fail = (path: string, problem: string) => never;
