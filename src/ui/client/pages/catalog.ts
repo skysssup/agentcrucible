@@ -134,12 +134,14 @@ function faultCard(f: FaultInfo, d: CatalogData, impact: Map<string, KindImpact>
   </article>`;
 }
 
+const STAGE_SHORT: Record<string, string> = { before: "Before the call", after: "After the call", twice: "Runs twice" };
+
 function faultsSection(d: CatalogData, q: string, stage: string, selected: string): string {
   const impact = new Map(faultImpact(d.obs).map((k) => [k.kind, k]));
   const pool = d.meta.faults.filter((f) => matches(q, f.kind, f.description, ...(f.params ?? [])));
   const rows = pool.filter((f) => !stage || f.stage === stage);
   const stages = ["before", "after", "twice"].filter((s) => d.meta.faults.some((f) => f.stage === s));
-  const filter = segmented("fault-stage", stage, [{ value: "", label: "All", count: pool.length }, ...stages.map((s) => ({ value: s, label: stageLabel(s).replace(" the call", ""), count: pool.filter((f) => f.stage === s).length, title: stageLabel(s) }))], { label: "When the fault strikes", wrap: true });
+  const filter = segmented("fault-stage", stage, [{ value: "", label: "All", count: pool.length }, ...stages.map((s) => ({ value: s, label: STAGE_SHORT[s] ?? s, count: pool.filter((f) => f.stage === s).length, title: stageLabel(s) }))], { label: "When the fault strikes", wrap: true });
   return `<div class="cat-toolbar">${filter}</div>${rows.length ? `<div class="cat-faults">${rows.map((f) => faultCard(f, d, impact, selected)).join("")}</div>` : emptyState({ icon: "search", title: "No fault kind matches", text: "Try another word, or show every stage.", compact: true })}`;
 }
 

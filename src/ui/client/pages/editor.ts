@@ -54,8 +54,12 @@ export function locateError(text: string, message: string | undefined): number |
   const named = errorLine(message);
   if (named) return named;
   const items = outline(text);
-  const fault = /\bfaults\[(\d+)\]/.exec(message ?? "");
-  if (fault) return items.filter((i) => i.kind === "fault")[Number(fault[1])]?.line;
+  const fault = /\bfaults\[(\d+)\](?:\.(\w+))?/.exec(message ?? "");
+  if (fault) {
+    const start = items.filter((i) => i.kind === "fault")[Number(fault[1])]?.line;
+    const field = start && fault[2] ? text.split("\n").findIndex((l, i) => i >= start - 1 && new RegExp(`^\\s*(?:-\\s+)?${fault[2]}\\s*:`).test(l)) : -1;
+    return field >= 0 ? field + 1 : start;
+  }
   const key = /^(?:draft: )?([a-z_]+)\b/i.exec(message ?? "")?.[1];
   return items.find((i) => i.kind === "key" && i.depth === 0 && i.label === key)?.line;
 }
@@ -145,7 +149,7 @@ function position(): string {
 
 function footHtml(): string {
   const lines = session.text.split("\n").length;
-  return `<span id="ed-pos">${esc(position())}</span><span>${plural(lines, "line")}</span><span>YAML · 2 spaces</span><span class="grow"></span><span id="ed-target"${tip(store.meta.scenarioDir ? "Where Save writes the file" : "")}>${esc(store.meta.scenarioDir ? `saves to ${targetPath()}` : "not saved to disk")}</span>`;
+  return `<span id="ed-pos">${esc(position())}</span><span>${plural(lines, "line")}</span><span>YAML · 2 spaces</span><span class="ed-hint">${MOD}+S save · ${MOD}+↵ run · Esc leaves the text</span><span class="grow"></span><span id="ed-target"${tip(store.meta.scenarioDir ? "Where Save writes the file" : "")}>${esc(store.meta.scenarioDir ? `saves to ${targetPath()}` : "not saved to disk")}</span>`;
 }
 
 function agentChoice(): Set<string> {
@@ -401,7 +405,7 @@ function editorHtml(): string {
   return `<div class="page ed-page">${head}
   <div class="ed-layout">
     <section class="panel ed-pane" aria-label="Scenario text">
-      <div class="ed-bar"><span class="ed-file">${icon("file", 13)}<span id="ed-file">${esc(id ? `${id}.yaml` : session.source ? `${session.source}.yaml` : "draft.yaml")}</span><span id="ed-dirty" class="pill warn"${dirty ? "" : " hidden"}>unsaved</span></span><span class="grow"></span><span class="ed-hint"><kbd>${MOD}</kbd><kbd>S</kbd> save <kbd>${MOD}</kbd><kbd>↵</kbd> run <kbd>Esc</kbd> leave the text</span>${button("Insert", { action: "insert", icon: "plus", iconEnd: "chevronDown", size: "sm", kind: "ghost", attrs: 'aria-haspopup="menu"', title: "Insert a fault, effect, invariant, or answer check where it belongs" })}</div>
+      <div class="ed-bar"><span class="ed-file">${icon("file", 13)}<span id="ed-file">${esc(id ? `${id}.yaml` : session.source ? `${session.source}.yaml` : "draft.yaml")}</span><span id="ed-dirty" class="pill warn"${dirty ? "" : " hidden"}>unsaved</span></span><span class="grow"></span>${button("Insert", { action: "insert", icon: "plus", iconEnd: "chevronDown", size: "sm", kind: "ghost", attrs: 'aria-haspopup="menu"', title: "Insert a fault, effect, invariant, or answer check where it belongs" })}</div>
       <div class="ed-code">
         <div class="ed-gutter" aria-hidden="true"><div id="ed-gutter-lines">${gutterLines(session.text, badLine())}</div></div>
         <div class="ed-body"><pre class="ed-hl code yaml" id="ed-hl-wrap" aria-hidden="true"><code id="ed-hl">${highlighted()}</code></pre><textarea id="ed-text" class="ed-text" data-input="ed-text" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" aria-label="Scenario YAML">${esc(session.text)}</textarea></div>

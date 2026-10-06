@@ -112,7 +112,7 @@ function gapsPanel(groups: GapGroup[]): string {
             .map((item) =>
               SCENARIO_GAPS.has(g.id)
                 ? `<li class="gap-item"><a class="gap-link" href="${esc(href("scenario", item))}">${esc(item)}</a><a class="gap-fix" href="${esc(g.link(item))}"${tip(`${g.fix}: ${item}`)} aria-label="${esc(`${g.fix}: ${item}`)}">${icon("edit", 11)}</a></li>`
-                : `<li class="gap-item"><a class="gap-link" href="${esc(g.link(item))}"${tip(`${g.fix}: ${item}`)}>${esc(item)}<span>${esc(g.fix)}</span>${icon("arrowRight", 11)}</a></li>`
+                : `<li class="gap-item"><a class="gap-link" href="${esc(g.link(item))}"${tip(`${g.fix}: ${item}`)}>${esc(item)}${icon("plus", 11)}</a></li>`
             )
             .join("")}</ul></div>`
         )

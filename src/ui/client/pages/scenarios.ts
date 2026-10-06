@@ -201,9 +201,19 @@ function tableDefaults() {
   return tableState(TABLE, { sort: "id", dir: "asc", pageSize: store.prefs.pageSize });
 }
 
-function table(): string {
+function table(picked = selected): string {
   const state = tableDefaults();
-  return dataTable({ id: TABLE, columns: columns(state), rows: filterScenarios(all, current()), state, rowKey: (s) => s.id, rowHref: (s) => href("scenario", s.id), rowCls: (s) => (health.get(s.id)?.attention.length ? "scn-attn-row" : ""), selected, empty: emptyTable(), cards: true, groupBy: grouped ? folder : undefined, flush: true, caption: "Scenarios" });
+  return dataTable({ id: TABLE, columns: columns(state), rows: filterScenarios(all, current()), state, rowKey: (s) => s.id, rowHref: (s) => href("scenario", s.id), rowCls: (s) => (health.get(s.id)?.attention.length ? "scn-attn-row" : ""), selected: picked, empty: emptyTable(), cards: true, groupBy: grouped ? folder : undefined, flush: true, caption: "Scenarios" });
+}
+
+/** The library table for `rows`, as drawn with the text query `q` applied and `picked` checked. */
+export function scenarioList(rows: ScenarioSummary[], picked: Set<string>, healthMap = new Map<string, Health>(), q = ""): string {
+  all = rows;
+  health = healthMap;
+  filter.q = q;
+  const html = table(picked);
+  filter.q = "";
+  return html;
 }
 
 /** Redraws everything the filters change, leaving the search box alone and keeping the focus on the control that changed. */

@@ -21,16 +21,17 @@ export const SCENARIOS_CSS = `
   .scn-chip { display:inline-flex; align-items:center; gap:5px; height:22px; padding:0 4px 0 8px; border:1px solid var(--border-2); border-radius:var(--r-full); color:var(--fg-2); font-size:11.5px; }
   .scn-chip-x { display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:50%; color:var(--muted); }
   .scn-chip-x:hover { background:var(--surface-3); color:var(--fg); }
-  .scn-main { min-width:240px; max-width:380px; }
-  .scn-faults { max-width:230px; }
+  .scn-main { min-width:200px; max-width:320px; }
+  .scn-faults { max-width:210px; }
+  .scn-faults .fault-tag, .scn-health .health { align-self:flex-start; }
   .scn-more { margin-left:6px; padding:0 5px; border-radius:var(--r-full); background:var(--surface-3); color:var(--muted); font:600 10.5px var(--font-mono); }
   .scn-exp { display:inline-flex; align-items:center; gap:6px; }
   .scn-exp b { color:var(--fg-2); font:500 11.5px var(--font-mono); }
-  .scn-checks { white-space:normal; min-width:130px; font-size:12px; }
+  .scn-checks { white-space:normal; min-width:110px; max-width:150px; font-size:12px; }
   .scn-health { min-width:150px; }
   .scn-attn-row td:first-child { box-shadow:inset 2px 0 0 var(--bad); }
   .scn-bulk:empty { display:none; }
-  .health { display:inline-flex; align-items:center; gap:8px; min-width:130px; }
+  .health { display:inline-flex; align-items:center; gap:8px; min-width:120px; }
   .health .vbar { flex:1; }
   .health b { min-width:34px; color:var(--fg-2); font:500 11.5px var(--font-mono); text-align:right; }
   .health.attn b { color:var(--bad-fg); }
@@ -125,15 +126,17 @@ export const SCENARIOS_CSS = `
   .cov th.cov-kind { position:sticky; left:0; z-index:2; min-width:190px; padding:7px 14px; background:var(--surface); border-right:1px solid var(--border); text-align:left; }
   .cov thead th.cov-kind { z-index:3; background:var(--surface-2); letter-spacing:.06em; text-transform:uppercase; }
   .cov th.cov-kind a { color:var(--fg); text-decoration:none; } .cov th.cov-kind a:hover { text-decoration:underline; text-underline-offset:3px; }
+  .cov tbody th.cov-kind { letter-spacing:0; text-transform:none; font-weight:400; }
   .cov th.cov-kind code { font:500 12px var(--font-mono); }
   .cov th.cov-kind small { display:block; margin-top:1px; color:var(--muted); font:400 11px var(--font-sans); }
   .cov th.cov-world { padding:7px 8px; border-left:1px solid var(--border); letter-spacing:.06em; text-transform:uppercase; }
   .cov th.cov-world a { display:inline-flex; align-items:center; gap:5px; color:var(--fg-2); text-decoration:none; } .cov th.cov-world a:hover { color:var(--fg); }
+  .cov thead th.cov-tool { letter-spacing:0; text-transform:none; }
   .cov th.cov-tool { height:128px; min-width:30px; padding:6px 0; vertical-align:bottom; font:400 11px var(--font-mono); }
   .cov th.cov-tool span { display:inline-block; color:var(--fg-2); white-space:nowrap; writing-mode:vertical-rl; transform:rotate(180deg); }
   .cov th.cov-tool.none span { color:var(--faint); }
   .cov th.cov-tool i { margin-top:4px; color:var(--fault); font-size:7px; font-style:normal; }
-  .cov th.cov-total, .cov td.cov-total { min-width:56px; padding:0 12px; border-left:1px solid var(--border); font:500 12px var(--font-mono); }
+  .cov th.cov-total, .cov td.cov-total { width:1%; min-width:56px; padding:0 12px; border-left:1px solid var(--border); font:500 12px var(--font-mono); }
   .cov td.cov-c { width:34px; min-width:34px; height:34px; padding:3px; }
   .cov-n, .cov-add { display:flex; align-items:center; justify-content:center; width:100%; height:100%; min-height:26px; border-radius:var(--r-xs); text-decoration:none; }
   .cov-n { background:color-mix(in srgb, var(--fault) var(--a), var(--surface-3)); color:var(--on-accent); font:600 11px var(--font-mono); }
@@ -221,10 +224,10 @@ export const SCENARIOS_CSS = `
   .ed-side { display:flex; flex-direction:column; gap:16px; min-width:0; }
   .ed-pane { display:flex; flex-direction:column; min-width:0; overflow:hidden; }
   .ed-bar { display:flex; align-items:center; gap:10px; min-height:40px; padding:4px 8px 4px 14px; border-bottom:1px solid var(--border); background:var(--surface-2); }
-  .ed-file { display:inline-flex; align-items:center; gap:7px; color:var(--fg); font:500 12px var(--font-mono); }
+  .ed-file { display:inline-flex; align-items:center; gap:7px; min-width:0; color:var(--fg); font:500 12px var(--font-mono); white-space:nowrap; }
+  .ed-file > span:nth-child(2) { overflow:hidden; text-overflow:ellipsis; }
   .ed-file .pill[hidden] { display:none; }
-  .ed-hint { display:inline-flex; align-items:center; gap:4px; color:var(--muted); font-size:11.5px; white-space:nowrap; }
-  .ed-hint kbd { margin-left:6px; }
+  .ed-hint { color:var(--faint); white-space:nowrap; }
   .ed-code { display:grid; grid-template-columns:auto minmax(0,1fr); height:clamp(420px, calc(100vh - 330px), 760px); overflow:hidden; background:var(--sunken); font:12px/1.65 var(--font-mono); }
   .ed-gutter { overflow:hidden; padding:12px 10px 12px 14px; border-right:1px solid var(--border); color:var(--faint); text-align:right; user-select:none; }
   .ed-gutter span { display:block; } .ed-gutter span.bad { color:var(--bad-fg); font-weight:700; }
@@ -236,7 +239,7 @@ export const SCENARIOS_CSS = `
   .ed-text::selection { background:color-mix(in srgb, var(--accent-solid) 28%, transparent); }
   .ed-bad { text-decoration:underline wavy var(--bad); text-underline-offset:3px; background:var(--bad-bg); }
   .ed-foot { display:flex; flex-wrap:wrap; align-items:center; gap:4px 16px; padding:7px 14px; border-top:1px solid var(--border); background:var(--surface-2); color:var(--muted); font:11.5px var(--font-mono); }
-  .ed-foot #ed-target { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ed-foot #ed-target { max-width:100%; margin-left:auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .ed-state { display:flex; flex-direction:column; gap:8px; }
   .ed-state-head { display:flex; flex-wrap:wrap; align-items:center; gap:8px; color:var(--fg); }
   .ed-state.ok .ed-state-head > .i { color:var(--ok); } .ed-state.bad .ed-state-head > .i { color:var(--bad); }
@@ -284,6 +287,7 @@ export const SCENARIOS_CSS = `
   .ed-ref .chip-row { margin-top:6px; }
   .ed-ref-world { display:flex; flex-direction:column; align-items:flex-start; gap:6px; margin-top:10px; }
 
+  @media (min-width: 761px) and (max-width: 1400px) { .dt td.scn-source, .dt th.scn-source { display:none; } }
   @media (max-width: 1180px) {
     .ed-layout { grid-template-columns:minmax(0,1fr); }
     .cat-verdicts { grid-template-columns:repeat(2,minmax(0,1fr)); }
