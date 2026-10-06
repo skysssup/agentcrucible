@@ -30,7 +30,7 @@ jobs:
       - run: npm pack
       - name: Release notes from the changelog
         run: node scripts/release-notes.mjs "${GITHUB_REF_NAME#v}" > release-notes.md
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           name: AgentCrucible ${{ github.ref_name }}
           body_path: release-notes.md
