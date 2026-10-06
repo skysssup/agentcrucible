@@ -161,4 +161,8 @@ export const AGENTS_CSS = `
     .cmp-mix-row .vbar, .cmp-mix-row .mix { grid-column:1 / -1; }
   }
   @media (max-width: 760px) { .ag-toolbar .search { width:100%; } .ag-toolbar .spacer { display:none; } }
+
+  .an-bar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px 16px; margin:-4px 0 14px; }
+  .an-filters { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+  @media (max-width: 760px) { .an-bar { align-items:flex-start; } }
 `;

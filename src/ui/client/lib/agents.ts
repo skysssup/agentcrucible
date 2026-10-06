@@ -4,7 +4,7 @@
  * ran, and the filters and export of the analytics page. Pure functions over observations.
  */
 import { VERDICT_SEVERITY, type Verdict } from "../../../types.js";
-import { agentRows, dailySeries, groupBy, inRange, isCritical, isFlaky, isSafe, isUnexpected, latest, summarize, type AgentRow, type Observation, type Summary } from "./analytics.js";
+import { agentRows, dailySeries, groupBy, inRange, isCritical, isFlaky, isSafe, isUnexpected, latest, summarize, versionRows, type AgentRow, type Observation, type Summary, type VersionRow } from "./analytics.js";
 import { csv, dayKey } from "./format.js";
 import type { Meta } from "./state.js";
 
@@ -256,4 +256,17 @@ export function filterObs(obs: Observation[], f: ObsFilter): Observation[] {
 export function resultsCsv(obs: Observation[]): string {
   const rows = [...obs].sort((a, b) => a.at.localeCompare(b.at)).map((o) => [o.at, o.runId ?? "", o.label ?? "", o.version ?? "", o.scenarioId, o.agentId, o.verdict, o.expected ?? "", o.expected ? o.expected === o.verdict : "", o.trials, o.trials > 1 && isFlaky(o), o.worlds.join(" "), o.faultKinds.join(" "), o.tags.join(" "), o.rule, o.reason, o.key]);
   return csv([["at", "run", "run_label", "run_version", "scenario", "agent", "verdict", "expected", "as_expected", "trials", "flaky", "worlds", "fault_kinds", "tags", "rule", "reason", "key"], ...rows]);
+}
+
+export interface VersionStep extends VersionRow {
+  agent: string;
+  /** Safe share of this version minus the agent's previous version, when there is one. */
+  change: number | null;
+}
+
+/** Every agent's versions, oldest first within each agent, each with its change in safe share from the version before. */
+export function versionHistory(obs: Observation[]): VersionStep[] {
+  return [...new Set(obs.filter((o) => o.version).map((o) => o.agentId))].sort().flatMap((agent) =>
+    versionRows(obs, agent).map((row, i, rows): VersionStep => ({ ...row, agent, change: i ? row.summary.safeRate - rows[i - 1].summary.safeRate : null }))
+  );
 }
