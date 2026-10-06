@@ -74,7 +74,7 @@ export function agentsTable(list: AgentRecord[]): string {
     id: TABLE_ID,
     columns: COLUMNS,
     rows: list,
-    state: tableState(TABLE_ID, { pageSize: 25 }),
+    state: tableState(TABLE_ID),
     rowKey: (r) => r.id,
     rowHref: (r) => href("agent", r.id),
     rowCls: (r) => (r.row ? "" : "is-muted"),

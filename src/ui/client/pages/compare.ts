@@ -82,7 +82,7 @@ function table(): string {
     id: TABLE_ID,
     columns: COLUMNS.map((c) => (c.id === "a" ? { ...c, label: current.a } : c.id === "b" ? { ...c, label: current.b } : c)),
     rows,
-    state: tableState(TABLE_ID, { pageSize: 25 }),
+    state: tableState(TABLE_ID),
     rowKey: (d) => d.scenarioId,
     rowCls: (d) => (d.edge ? "" : "cmp-row-tie"),
     flush: true,

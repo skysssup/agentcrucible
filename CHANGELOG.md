@@ -1,5 +1,34 @@
 # Changelog
 
+## 2.1.0
+
+2.1 turns `agentcrucible ui` into a console with memory. Every run and sweep goes into a history file, so the console can chart reliability over weeks, compare any two runs, say what needs attention, and reopen any old result by regenerating it from its seed. Every page is rebuilt on one design, and `ui --demo` opens a workspace with eight weeks of history to explore before you have your own. Scenario files, reports, baselines, and the library API are unchanged; the CLI gains three `ui` flags.
+
+### The console
+
+- **A command center** with the safe share, results, critical, unexpected, and flaky results, and fault coverage over a chosen period against the period before; verdicts per day with each agent version marked; what needs attention; an agent leaderboard; recommendations drawn from the evidence; recent activity and runs; coverage at a glance; and a setup checklist for a new workspace.
+- **Analytics** (filters for agents, worlds, tags, and fault kinds; trends by verdict or agent; fault impact; deciding rules with advice; agent-by-world and agent-by-fault matrices; tables by scenario and version), an **Activity** log of every event grouped by day, **Agent profiles** with the safe share over time and each release marked, the weakest scenarios and fault kinds, and advice, and a head-to-head **Compare** of two agents.
+- **Runs** from the whole history with filters and a scenario-by-agent matrix per run; **Compare runs** for regressions, improvements, and split trials between two runs; a **New run** launcher whose run continues on the server as a background job and fills in cell by cell; **Sweeps** with a live heat map; a **Guided demo** that plays the five-agent refund one agent at a time.
+- **Reports** with every filter in the address, and a **Report** explorer with a summary of why, what the agent said beside what committed, a call-by-call timeline (`J`, `K`), per-call world state, and the raw JSON.
+- **Scenarios** with filters, grouping, and bulk actions; a **Scenario** page with the fault schedule step by step and its result history; an **Editor** that validates as you type, with an outline, snippets, seven templates, drafts started from a coverage gap, and runs and replays of the draft; **Coverage** whose empty cells start a scenario; a **Catalog** of agents, worlds, fault kinds with when they fire, verdicts, and policies.
+- **The baseline** beside each entry's latest result, with the CI gate's outcome and exit status for any run.
+- **Settings**: a profile that labels your runs and events; preferences for theme, density, sidebar, motion, time format, rows per page, default trials, start page, confirmations, and finish toasts; the workspace's paths, config, and limits; integrations for the GitHub Action, MCP clients, and model providers; session token rotation; and the history's export, import, and clearing.
+- **Search** across scenarios, agents, runs, reports, findings, the catalog, and actions (Ctrl+K), with scopes and a preview; a **notification center** for finished jobs, unexpected verdicts, regressions, and failures; keyboard shortcuts for every page (`?` lists them).
+- **One design**, ink on warm paper: monochrome chrome, color only for verdicts, faults, and changes, one orange action per region, tabular numerals, light and dark themes, and layouts for desktop, tablet (an icon rail), and phone (a drawer, a tab bar, and tables as cards).
+
+### History and the demo workspace
+
+- **`ui` keeps a history** in `.agentcrucible/ui/workspace.json`: the profile, up to 250 runs, 100 sweeps, and 2000 activity events. **`--state <dir>`** moves it and **`--no-history`** keeps everything in memory. A result from an earlier session opens by running it again from its seed; the report says whether it reproduced the recorded verdict. An unreadable history file is renamed to `workspace.json.bad` and the activity log says so.
+- **`ui --demo`** generates `northwind-support` in a temporary directory, with 10 project scenarios, saved reports, a baseline, and eight weeks of history from the real engine: 58 runs, 5 sweeps, and an agent that improves over five releases until a new scenario catches it in a `SILENT_FAILURE`.
+- **The UI's API** adds background jobs (`/api/jobs/run`, `/api/jobs/sweep`, `/api/job`), the run history (`/api/runs`, `/api/run`), activity, notifications, the profile, system information, session rotation, history export, import, and clear, and deleting saved reports and the project's own scenario files. The UI and its API may change in a minor release ([stability.md](docs/stability.md)); the new `ui` flags are additive.
+
+### Also
+
+- **The run index** (`index.html` of a run) has a title, a line with the scenarios, agents, reports, trials, and fail threshold, and KPI cells for reports, safe and critical results, and the gate's outcome.
+- **`run --json` and `sweep --json` keep stdout parseable under GitHub Actions.** The workflow annotations went to stdout after the JSON, so `agentcrucible run --json > results.json` wrote an invalid file in a workflow; in JSON mode they now go to stderr, where the runner still reads them.
+- **The build emits type declarations with `tsc`** (`tsconfig.build.json`), because `tsup --dts` does not work with TypeScript 7.
+- The package description and `docs/cli.md` describe the console; `.gitignore` ignores `.agentcrucible/ui/`.
+
 ## 2.0.0
 
 2.0 turns AgentCrucible from a harness for scripted agents into a tool that tests the agents people actually ship: a model named on the command line, with its responses recorded for offline replay; any MCP client; and any module as before. It adds fault sweeps and scenario coverage, a published JSON Schema, GitHub Actions output and a reusable action, shell completions, and a redesign of the UI, the HTML report, and the run index. No verdict changed: every bundled scenario gives the same verdicts for the agents that existed in 1.1, and reports, baselines, scenario files, agent modules, and extensions written for 1.x load unchanged. The major version marks the new surface and the new look, not a migration; [docs/stability.md](docs/stability.md) says what 2.x keeps compatible.

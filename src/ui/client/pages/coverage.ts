@@ -139,7 +139,7 @@ function worldsPanel(c: Coverage): string {
 const AGENTS = "coverage-agents";
 
 function agentsPanel(c: Coverage): string {
-  const state = tableState(AGENTS, { sort: "scenarios", dir: "desc", pageSize: 25 });
+  const state = tableState(AGENTS, { sort: "scenarios", dir: "desc" });
   const rows = c.agents;
   registerTable(AGENTS, () => agentsTable(rows));
   return panel({ title: "Agents held to expected verdicts", icon: "bot", meta: `${c.agents.length - c.gaps.agents.length} of ${c.agents.length} agents`, flush: true, actions: `<a class="link-quiet" href="#/agents">Agents ${icon("arrowRight", 12)}</a>` }, agentsTable(rows, state));
