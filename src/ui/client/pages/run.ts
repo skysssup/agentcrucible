@@ -128,7 +128,8 @@ function baselinePanel(run: RunRecord): string {
   );
 }
 
-function detail(run: RunRecord): string {
+/** The page of one run. */
+export function runDetail(run: RunRecord): string {
   const c = resultCounts(run.results);
   const s = runScope(run);
   const prev = previousRun(run, store.runs);
@@ -212,7 +213,8 @@ function diffTable(): string {
   });
 }
 
-function compare(after: RunRecord, before: RunRecord): string {
+/** The page that compares two runs, the later run first. */
+export function runCompare(after: RunRecord, before: RunRecord): string {
   diffRows = runDiff(after, before);
   const counts = diffCounts(diffRows);
   const changed = counts.regression + counts.improvement + counts.split;
@@ -295,9 +297,9 @@ const page: Page = {
     remember({ kind: "run", id: run.runId, label: run.label ?? run.runId, detail: scopeSentence(run) });
     const other = findRun(ctx.query.get("compare") ?? undefined);
     if (ctx.query.get("compare") && !other) return `<div class="page">${pageHead({ title: run.runId, mono: true, eyebrow: `${icon("runs", 11)}Run` })}${emptyState({ icon: "search", title: "The run to compare with is gone", text: `There is no run <code>${esc(ctx.query.get("compare") ?? "")}</code> in the history.`, actions: button("Back to the run", { href: href("run", run.runId), kind: "primary" }) })}</div>`;
-    if (!other) return detail(run);
+    if (!other) return runDetail(run);
     const [after, before] = run.startedAt >= other.startedAt ? [run, other] : [other, run];
-    return compare(after, before);
+    return runCompare(after, before);
   },
   actions: {
     "matrix-filter": (el) => {

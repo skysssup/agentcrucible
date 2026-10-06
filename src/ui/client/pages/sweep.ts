@@ -80,7 +80,7 @@ function kindChips(): string {
     .join("")}</ul>`;
 }
 
-function sweepForm(): string {
+export function sweepForm(): string {
   const scenarios = store.scenarios ?? [];
   const sw = sweepable();
   return `<div class="sweep-grid"><div class="sweep-main">${panel(
@@ -155,7 +155,7 @@ function pastSweeps(): string {
   ${listTable()}</section>`;
 }
 
-function listPage(): string {
+export function sweepList(): string {
   const last = store.sweeps[0];
   const head = pageHead({
     eyebrow: `${icon("grid", 11)}Execute`,
@@ -194,7 +194,7 @@ function elapsed(job: Job): string {
   return `${job.status === "running" ? "running for" : "took"} ${duration(Math.max(0, end - Date.parse(job.startedAt)))}`;
 }
 
-function jobPage(job: Job): string {
+export function sweepJob(job: Job): string {
   const parts = liveParts(job);
   const running = job.status === "running";
   const req = sweepPlans.get(job.jobId);
@@ -239,7 +239,7 @@ function kindRows(s: SweepResponse): string {
     .join("")}</ul>`;
 }
 
-function detailPage(s: SweepResponse, id: string): string {
+export function sweepDetail(s: SweepResponse, id: string): string {
   const keys = new Map(s.cells.map((c) => [`${c.kind}\n${c.step}`, c.key]));
   const critical = criticalCells(s);
   const others = store.sweeps.filter((x) => x.sweepId !== s.sweepId && x.scenarioId === s.scenarioId && x.agentId === s.agentId).slice(0, 5);
@@ -344,16 +344,16 @@ const page: Page = {
     if (jobId) {
       const job = await api<Job>(`/api/job?id=${encodeURIComponent(jobId)}`).catch(() => undefined);
       if (!job) return `<div class="page">${pageHead({ title: jobId, mono: true, eyebrow: `${icon("grid", 11)}Sweep in progress` })}${emptyState({ icon: "search", title: "The server no longer knows this job", text: "It keeps the most recent finished jobs. Finished sweeps stay in the history.", actions: `${button("All sweeps", { href: "#/sweep", kind: "primary", icon: "grid" })}` })}</div>`;
-      return jobPage(job);
+      return sweepJob(job);
     }
     if (ctx.arg) {
       const sweep = await loadSweep(ctx.arg);
       if (!sweep) return `<div class="page">${pageHead({ title: ctx.arg, mono: true, eyebrow: `${icon("grid", 11)}Sweep` })}${emptyState({ icon: "search", title: "No such sweep", text: `The workspace has no sweep <code>${esc(ctx.arg)}</code>. The history keeps the most recent sweeps only.`, actions: button("All sweeps", { href: "#/sweep", kind: "primary", icon: "grid" }) })}</div>`;
       remember({ kind: "sweep", id: sweep.sweepId, label: `${sweep.scenarioId} with ${sweep.agentId}`, detail: `${(sweep.score.resilience * 100).toFixed(0)}% resilient` });
-      return detailPage(sweep, sweep.sweepId);
+      return sweepDetail(sweep, sweep.sweepId);
     }
     prime(ctx.query);
-    return listPage();
+    return sweepList();
   },
   mount(ctx) {
     const jobId = ctx.query.get("job");

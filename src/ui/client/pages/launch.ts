@@ -60,6 +60,12 @@ function scenarioRow(s: ScenarioSummary): string {
   return `<li><label class="pick-row"><span class="pick-check">${checkbox({ value: s.id, checked: selected.has(s.id), action: "launch-scn", ariaLabel: `Run ${s.id}` })}</span><span class="pick-body"><span class="pick-title mono">${esc(s.id)}</span><span class="pick-sub">${esc(clip(firstSentence(s.description), 120))}</span></span><span class="pick-meta">${s.worlds.map(worldChip).join("")}<span class="muted small"${tip(expected ? `Expected verdicts for ${Object.keys(s.expectedVerdicts).join(", ")}` : "No expected agents: choose agents to run it")}>${expected ? plural(expected, "expected agent") : "no expected agents"}</span></span></label></li>`;
 }
 
+function chosenChips(): string {
+  const ids = [...selected];
+  if (!ids.length) return "";
+  return `<div class="chosen-row"><span class="eyebrow">Chosen</span>${ids.slice(0, 6).map((id) => `<span class="tag on mono">${esc(id)}<button type="button" class="tag-x" data-action="launch-scn-remove" data-id="${esc(id)}" aria-label="Remove ${esc(id)}">${icon("x", 11)}</button></span>`).join("")}${ids.length > 6 ? `<span class="muted small">and ${ids.length - 6} more</span>` : ""}</div>`;
+}
+
 function scenarioPicker(): string {
   const shown = shownScenarios();
   if (!shown.length) return emptyState({ icon: "search", title: scenarioList().length ? "No scenario matches" : "No scenarios", text: scenarioList().length ? "Change the search or the tag." : "Write one in the editor first.", actions: scenarioList().length ? "" : button("Open the editor", { href: "#/editor", size: "sm", icon: "code" }), compact: true });
@@ -123,7 +129,7 @@ function prime(query: URLSearchParams): void {
   if (!failOn) failOn = store.meta.failOn;
 }
 
-function form(): string {
+export function launchForm(): string {
   const head = pageHead({
     eyebrow: `${icon("play", 11)}Execute`,
     title: "New run",
@@ -139,7 +145,7 @@ function form(): string {
       actions: `${button("Select shown", { action: "launch-scn-all", kind: "ghost", size: "sm" })}${button("Clear", { action: "launch-scn-none", kind: "ghost", size: "sm" })}`,
       flush: true,
     },
-    `<div class="pick-tools">${searchInput({ id: "launch-q", value: q, placeholder: "Search scenarios, tags, worlds", kbd: "/" })}${select({ input: "launch-tag", value: tag, options: tagOptions(), label: "Filter by tag", width: "150px" })}</div><div id="launch-scns">${scenarioPicker()}</div>`
+    `<div class="pick-tools">${searchInput({ id: "launch-q", value: q, placeholder: "Search scenarios, tags, worlds", kbd: "/" })}${select({ input: "launch-tag", value: tag, options: tagOptions(), label: "Filter by tag", width: "150px" })}</div><div id="launch-chosen">${chosenChips()}</div><div id="launch-scns">${scenarioPicker()}</div>`
   );
   const agents = panel(
     { title: "Agents", icon: "bot", meta: mode === "expected" ? "the expected agents of each scenario" : `${agentSet.size} chosen`, actions: segmented("launch-mode", mode, [{ value: "expected", label: "Expected agents" }, { value: "chosen", label: "Choose agents" }], { label: "Which agents run" }) },
@@ -165,6 +171,7 @@ function scnCount(): string {
 
 function refreshForm(): void {
   patch("launch-scn-count", esc(scnCount()));
+  patch("launch-chosen", chosenChips());
   patch("launch-plan", planPanel());
 }
 
@@ -207,7 +214,7 @@ function paintJob(job: Job): void {
   patch("job-feed", parts.feed);
 }
 
-function jobPage(job: Job): string {
+export function launchJob(job: Job): string {
   const planned = runPlans.get(job.jobId);
   const run = job.runId ? store.runs.find((r) => r.runId === job.runId) : undefined;
   const running = job.status === "running";
@@ -235,8 +242,8 @@ function jobPage(job: Job): string {
     kpi({ label: "Elapsed", icon: "timer", value: duration(Math.max(0, (job.finishedAt ? Date.parse(job.finishedAt) : Date.now()) - Date.parse(job.startedAt))), sub: running ? "so far" : "in all" }),
   ]);
   return `<div class="page launch-page">${head}${outcome}${kpiRow}
-  <div class="grid g-8-4 mt-16">${panel({ title: "Matrix", icon: "grid", meta: "scenarios down, agents across", flush: true }, `<div id="job-grid">${parts.grid}</div>`)}${panel({ title: "Latest results", icon: "activity", flush: true }, `<div id="job-feed">${parts.feed}</div>`)}</div>
   ${panel({ title: "Progress", icon: "gauge", cls: "mt-16" }, `<div id="job-head">${parts.head}</div>`)}
+  <div class="grid g-8-4 mt-16">${panel({ title: "Matrix", icon: "grid", meta: "scenarios down, agents across", flush: true }, `<div id="job-grid">${parts.grid}</div>`)}${panel({ title: "Latest results", icon: "activity", flush: true }, `<div id="job-feed">${parts.feed}</div>`)}</div>
   ${planned ? panel({ title: "Run it again from the command line", icon: "terminal", cls: "mt-16" }, commandBlock(launchCommands({ scenarios: scenarioList().filter((s) => planned.request.scenarioIds?.includes(s.id)), agents: planned.request.agents.length ? planned.request.agents : null, trials: planned.request.trials, seed: planned.request.seed }, scenarioList()))) : ""}
 </div>`;
 }
@@ -252,10 +259,10 @@ const page: Page = {
       const job = await api<Job>(`/api/job?id=${encodeURIComponent(jobId)}`).catch(() => undefined);
       if (!job) return `<div class="page">${pageHead({ title: jobId, mono: true, eyebrow: `${icon("runs", 11)}Run in progress` })}${emptyState({ icon: "search", title: "The server no longer knows this job", text: "It keeps the most recent finished jobs. Finished runs stay in the history.", actions: `${button("All runs", { href: "#/runs", kind: "primary", icon: "runs" })}${button("New run", { href: "#/launch" })}` })}</div>`;
       if (job.runId && !store.runs.some((r) => r.runId === job.runId)) await load.runs(true);
-      return jobPage(job);
+      return launchJob(job);
     }
     prime(ctx.query);
-    return form();
+    return launchForm();
   },
   mount(ctx) {
     const jobId = ctx.query.get("job");
@@ -304,6 +311,10 @@ const page: Page = {
       if (input.checked) selected.add(input.value);
       else selected.delete(input.value);
       refreshForm();
+    },
+    "launch-scn-remove": (el) => {
+      selected.delete(el.dataset.id ?? "");
+      refreshList();
     },
     "launch-scn-all": () => {
       for (const s of shownScenarios()) selected.add(s.id);
