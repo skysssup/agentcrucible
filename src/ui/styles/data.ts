@@ -110,8 +110,8 @@ export const DATA_CSS = `
   .donut-center span { margin-top:4px; color:var(--muted); font:500 10px var(--font-mono); letter-spacing:.06em; text-transform:uppercase; }
   .barlist { display:flex; flex-direction:column; gap:2px; margin:0; padding:0; list-style:none; }
   .barlist li { position:relative; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:12px; height:30px; padding:0 8px; border-radius:var(--r-xs); font-size:12px; }
-  .barlist li > .fill { position:absolute; inset:3px auto 3px 0; border-radius:var(--r-xs); background:var(--bl, var(--surface-3)); opacity:.9; }
-  .barlist li > * { position:relative; }
+  .barlist :is(li, li > a) > .fill { position:absolute; inset:3px auto 3px 0; border-radius:var(--r-xs); background:var(--bl, var(--surface-3)); opacity:.9; }
+  .barlist :is(li, li > a) > * { position:relative; }
   .barlist .bl-label { display:flex; align-items:center; gap:8px; overflow:hidden; color:var(--fg); text-overflow:ellipsis; white-space:nowrap; }
   .barlist .bl-label code { overflow:hidden; text-overflow:ellipsis; }
   .barlist .bl-val { color:var(--fg-2); font:500 12px var(--font-mono); white-space:nowrap; }
@@ -155,6 +155,7 @@ export const DATA_CSS = `
   .list-row .grow { display:flex; flex-direction:column; gap:2px; }
   .list-row .title { overflow:hidden; color:var(--fg); font-size:12.5px; font-weight:500; text-overflow:ellipsis; white-space:nowrap; }
   .list-row .title.wrap { white-space:normal; overflow-wrap:anywhere; line-height:1.4; }
+  .list-row .detail.wrap { white-space:normal; line-height:1.45; }
   .list-row .detail { overflow:hidden; color:var(--muted); font-size:11.5px; text-overflow:ellipsis; white-space:nowrap; }
 
   .code-view { display:grid; grid-template-columns:auto minmax(0,1fr); overflow:auto; max-height:560px; background:var(--sunken); font:12px/1.65 var(--font-mono); }

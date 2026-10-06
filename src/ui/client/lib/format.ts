@@ -18,10 +18,18 @@ export function firstSentence(text: string): string {
   return text.split(/(?<=\.)\s/)[0];
 }
 
+let timeStyle: "relative" | "absolute" = "relative";
+
+/** Whether `relTime` prints "3 h ago" or the date and time (the Preferences setting). */
+export function setTimeStyle(style: "relative" | "absolute"): void {
+  timeStyle = style;
+}
+
 /** "just now", "5 min ago", "3 h ago", "yesterday", "4 days ago", or a date. */
 export function relTime(iso: string | undefined, now = Date.now()): string {
   const t = iso ? Date.parse(iso) : NaN;
   if (Number.isNaN(t)) return "";
+  if (timeStyle === "absolute") return absTime(iso);
   const s = Math.max(0, (now - t) / 1000);
   if (s < 45) return "just now";
   if (s < 3600) return `${Math.max(1, Math.floor(s / 60))} min ago`;

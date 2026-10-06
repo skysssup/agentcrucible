@@ -1,9 +1,11 @@
 /** Applies the appearance preferences (theme, density, sidebar, motion) to the document. */
+import { setTimeStyle } from "./format.js";
 import { savePrefs, store, type Theme } from "./state.js";
 
 export function applyTheme(): void {
   const root = document.documentElement;
-  const { theme, density, sidebar, motion } = store.prefs;
+  const { theme, density, sidebar, motion, time } = store.prefs;
+  setTimeStyle(time);
   if (theme === "system") delete root.dataset.theme;
   else root.dataset.theme = theme;
   if (density === "compact") root.dataset.density = "compact";

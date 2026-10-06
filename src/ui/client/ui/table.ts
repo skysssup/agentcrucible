@@ -4,6 +4,7 @@
  * only that table through the renderer the page registered with `registerTable`.
  */
 import { esc, num } from "../lib/format.js";
+import { store } from "../lib/state.js";
 import { icon } from "../icons.js";
 
 export interface Column<T> {
@@ -44,7 +45,7 @@ const tables = new Map<string, Registered>();
 export function tableState(id: string, defaults: Partial<TableState> = {}): TableState {
   const found = tables.get(id);
   if (found) return found.state;
-  const state: TableState = { dir: "desc", page: 1, pageSize: 25, ...defaults };
+  const state: TableState = { dir: "desc", page: 1, pageSize: store.prefs.pageSize, ...defaults };
   tables.set(id, { state, render: () => "" });
   return state;
 }
