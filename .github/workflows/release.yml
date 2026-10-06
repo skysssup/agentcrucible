@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run test:docs
+      - run: npm run test:package
+      - name: Check that the tag matches package.json
+        run: |
+          version=$(node -p "require('./package.json').version")
+          [[ "${GITHUB_REF_NAME}" == "v${version}" ]] || { echo "tag ${GITHUB_REF_NAME} does not match package.json version ${version}"; exit 1; }
+      - run: npm pack
+      - name: Release notes from the changelog
+        run: node scripts/release-notes.mjs "${GITHUB_REF_NAME#v}" > release-notes.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: AgentCrucible ${{ github.ref_name }}
+          body_path: release-notes.md
+          files: agentcrucible-*.tgz
+      - name: Publish to npm when a token is configured
+        if: ${{ env.NODE_AUTH_TOKEN != '' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public

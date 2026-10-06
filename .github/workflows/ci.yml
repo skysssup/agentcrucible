@@ -27,3 +27,29 @@ jobs:
       - run: npm test
       - run: npm run test:docs
       - run: npm run test:package
+      - name: Committed schema is current
+        run: git diff --exit-code -- schema/scenario.schema.json
+
+  action:
+    name: Reusable action
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check the bundled scenarios with the action
+        uses: ./
+        with:
+          command: check
+          tag: smoke
+      - name: Run the smoke scenarios against a scripted agent
+        id: smoke
+        uses: ./
+        with:
+          tag: smoke
+          agent: cross-checker
+          trials: 3
+          fail-on: HARMFUL_ACTION
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: agentcrucible-reports
+          path: ${{ steps.smoke.outputs.reports }}
