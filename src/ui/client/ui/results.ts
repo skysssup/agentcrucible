@@ -6,6 +6,7 @@
 import type { Comparison } from "../../api.js";
 import { VERDICT_SEVERITY, type Verdict } from "../../../types.js";
 import { api } from "../lib/api.js";
+import { sourceOf } from "../lib/results.js";
 import { esc, plural } from "../lib/format.js";
 import { runtime } from "../lib/runtime.js";
 import { invalidate, load, store } from "../lib/state.js";
@@ -15,10 +16,7 @@ import { confirmDialog, toast } from "./overlays.js";
 export type SourceKind = "saved" | "session" | "history" | "sweep";
 
 export function sourceKind(key: string): SourceKind {
-  if (key.startsWith("file:")) return "saved";
-  if (key.startsWith("mem-")) return "session";
-  if (key.startsWith("sweep:")) return "sweep";
-  return "history";
+  return key.startsWith("sweep:") ? "sweep" : sourceOf(key);
 }
 
 /** Keys POST /api/save accepts: results of this session and of the history. */
