@@ -57,6 +57,10 @@ describe("sweep", () => {
     expect(JSON.parse(readFileSync(join(cwd, "out", "sweep.json"), "utf8"))).toEqual(summary);
     expect(readFileSync(join(cwd, "out", "sweep.md"), "utf8")).toContain("| `timeout` | SAFE_FAILURE |");
     expect(readdirSync(join(cwd, "out", "cells")).sort()).toEqual(["baseline.report.json", "omission@1.report.json", "timeout@1.report.json"]);
+    const html = readFileSync(join(cwd, "out", "sweep.html"), "utf8");
+    expect(html).toContain("<!DOCTYPE html>");
+    expect(html).toContain("Sweep of payments/timeout-after-commit with honest-stop");
+    expect(html).toContain("SAFE_FAILURE");
     const inspect = runCli(["inspect", join(cwd, "out", "cells", "timeout@1.report.json")]);
     expect(inspect.status).toBe(0);
     expect(inspect.stdout).toContain("[fault: timeout]");

@@ -6,7 +6,7 @@ import { compareBaseline, createBaseline, readBaseline, writeBaseline, type Base
 import { findConfigPath, loadConfig, loadConfigFile, type CrucibleConfig } from "./config.js";
 import { DEMO_SCENARIO, runDemo } from "./demo.js";
 import { worstTrial } from "./describe.js";
-import type { RunIndexEntry } from "./html.js";
+import { renderSweepHtml, type RunIndexEntry } from "./html.js";
 import { initProject } from "./init.js";
 import { parseMaxSteps, parseModelAgentId, registerModelAgent, type ModelAgentOptions } from "./models.js";
 import { formatReport, formatTrialDetail, painter, printReport, readReportFile, shouldColor, writeHtmlReport, writeJsonReport, writeJUnitReport, writeRunIndex } from "./report.js";
@@ -589,6 +589,7 @@ async function cmdSweep(flags: Flags): Promise<number> {
   if (out) {
     writeFileSync(join(out, "sweep.json"), `${JSON.stringify(summary, null, 2)}\n`);
     writeFileSync(join(out, "sweep.md"), `${sweepMarkdown(summary)}\n`);
+    writeFileSync(join(out, "sweep.html"), renderSweepHtml(summary, { version: VERSION }));
     const cells = join(out, "cells");
     mkdirSync(cells, { recursive: true });
     writeFileSync(join(cells, "baseline.report.json"), JSON.stringify(result.baselineReport, null, 2));
@@ -597,7 +598,7 @@ async function cmdSweep(flags: Flags): Promise<number> {
   if (asJson) console.log(JSON.stringify(summary, null, 2));
   else {
     console.log(formatSweep(summary, shouldColor(process.stdout)));
-    if (out) console.log(`\nWritten to ${out}/ (sweep.json, sweep.md, cells/<kind>@<step>.report.json)`);
+    if (out) console.log(`\nWritten to ${out}/ (sweep.json, sweep.md, sweep.html, cells/<kind>@<step>.report.json)`);
   }
   const failingCells = result.cells.filter((c) => c.fired && atLeast(c.verdict, threshold));
   const failing = failingCells.length;
@@ -973,7 +974,7 @@ model agents (run, compare, check, sweep, ui), with OPENAI_API_KEY / ANTHROPIC_A
 compare options: --scenario, --agents a,b,./agent.mjs, --trials, --seed, --timeout, --concurrency, --json, --fail-on, --config
 check options:   --scenario, --tag, --trials (default ${CHECK_TRIALS}), --timeout, --concurrency, --json, --config
 sweep options:   --scenario <id> (required), --agent, --kinds a,b (default: every fault kind), --steps <n> (default 12),
-                 --trials, --seed, --timeout, --concurrency, --out <dir> (sweep.json, sweep.md, cells/), --json, --fail-on, --config
+                 --trials, --seed, --timeout, --concurrency, --out <dir> (sweep.json, sweep.md, sweep.html, cells/), --json, --fail-on, --config
 coverage options: --tag, --json, --config
 mcp options:     --scenario <id> (required), --seed <text>, --out <dir> to write the report, --agent-id <name> (default mcp-client), --config
 list options:    --tag, --json, --ids (one id per line), --tags (one tag per line); agents and faults take --ids too
