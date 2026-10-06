@@ -2,6 +2,7 @@
 export const RUNS_CSS = `
   .run-status { display:inline-flex; align-items:center; justify-content:center; color:var(--faint); }
   .run-status.ok { color:var(--ok-fg); } .run-status.bad { color:var(--bad-fg); } .run-status.draft { color:var(--accent-fg); }
+  .dt .link-mono { white-space:nowrap; }
   .dt .scope { color:var(--fg-2); font-size:12px; white-space:nowrap; }
   .dt .actor { display:inline-flex; align-items:center; gap:6px; min-width:0; }
   .dt .actor .clip { max-width:110px; }
@@ -212,6 +213,8 @@ export const RUNS_CSS = `
     .ff-arrow { display:none; }
   }
   @media (max-width: 760px) {
+    .run-page .panel-head, .sweep-page .panel-head, .launch-page .panel-head { flex-wrap:wrap; }
+    .run-page .panel-actions, .sweep-page .panel-actions, .launch-page .panel-actions { flex-wrap:wrap; max-width:100%; margin-left:0; }
     .cmp-runs { grid-template-columns:minmax(0,1fr); }
     .cmp-arrow { justify-content:center; transform:rotate(90deg); }
     .lane { grid-template-columns:minmax(0,1fr); gap:12px; padding:14px 16px; }
@@ -221,8 +224,6 @@ export const RUNS_CSS = `
     .oc-agents { text-align:left; }
     .pick-meta { display:none; }
     .demo-steps li + li::before { width:12px; }
-    .ds-label { display:none; }
-    .demo-steps li.now .ds-label { display:inline; }
     .job-row .job-progress { width:110px; }
     .matrix .matrix-corner { width:150px; }
   }
