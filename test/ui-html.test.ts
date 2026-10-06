@@ -77,17 +77,18 @@ describe("renderSweepHtml", () => {
   });
 });
 
-describe("the flat design system", () => {
+describe("the design system", () => {
   it("styles the UI and the standalone pages without gradients, glows, blur, or large radii", async () => {
     const report = await runScenario({ scenario, agentId: "naive-retry", registry, trials: 1 });
     const pages = [UI_CSS, renderSweepHtml(summary()), renderRunIndex([{ report, href: "r.html" }], "Run", "SILENT_FAILURE")];
     for (const css of pages) {
-      expect(css).not.toMatch(/gradient\(|backdrop-filter|text-shadow|@keyframes (rise|pop|flash|pulse|glow|shimmer|draw)/);
+      expect(css).not.toMatch(/gradient\(|backdrop-filter|text-shadow|@keyframes (glow|shimmer|pulse)/);
       expect(css).not.toMatch(/border-radius:\s*(?:[7-9]|[1-9]\d)px/);
     }
-    expect(UI_CSS).toContain("--accent:light-dark(#2563eb,#3b82f6)");
-    expect(UI_CSS).toContain("--canvas:light-dark(#fafafa,#0b0c0e)");
+    expect(UI_CSS).toContain("--canvas:light-dark(#f4f3ef,#0c0c0b)");
+    expect(UI_CSS).toContain("--accent:light-dark(#c4471a,#ec6a33)");
     expect(UI_CSS).toContain("html :not(#_) { font-variant-numeric:tabular-nums; }");
+    expect(UI_CSS).toContain("@media (prefers-reduced-motion: reduce)");
   });
 
   it("keeps the verdict classes the pages rely on", () => {

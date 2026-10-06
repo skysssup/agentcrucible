@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { accessSync, constants, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { isIP } from "node:net";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { compareBaseline, createBaseline, readBaseline, writeBaseline, type BaselineComparison } from "./baseline.js";
 import { findConfigPath, loadConfig, loadConfigFile, type CrucibleConfig } from "./config.js";
@@ -22,6 +23,7 @@ import { scenarioJsonSchema } from "./scenario-schema.js";
 import { COMPLETION_SHELLS, completionScript, type CompletionShell } from "./completion.js";
 import { githubAnnotations, githubStepSummary } from "./github.js";
 import { serveMcp } from "./mcp.js";
+import { createDemoWorkspace } from "./ui/demo-workspace.js";
 import { startUi, type UiServer } from "./ui/server.js";
 import { atLeast } from "./verdict.js";
 import { VERSION } from "./version.js";
@@ -90,7 +92,7 @@ const COMMANDS: Record<string, Command> = {
   mcp: { description: "Serve a scenario's tools to an MCP client over stdio and grade its answer", flags: { "--scenario": "value", "--seed": "value", "--out": "value", "--agent-id": "value", "--config": "value" }, run: cmdMcp },
   ui: {
     description: "Browse, run, compare, and edit scenarios in a local web UI",
-    flags: { "--port": "value", "--host": "value", "--out": "value", "--baseline": "value", "--agents": "value", "--fail-on": "value", "--config": "value", ...MODEL },
+    flags: { "--port": "value", "--host": "value", "--out": "value", "--baseline": "value", "--agents": "value", "--fail-on": "value", "--config": "value", "--state": "value", "--no-history": "boolean", "--demo": "boolean", ...MODEL },
     run: cmdUi,
   },
   init: { description: "Write a starter config, scenario, and agent", flags: {}, run: cmdInit },
@@ -826,8 +828,17 @@ async function cmdMcp(flags: Flags): Promise<number> {
 
 /** Serves the local UI until interrupted. */
 async function cmdUi(flags: Flags): Promise<number> {
+  let demoRegistry: Registry | undefined;
+  if (flags["--demo"]) {
+    for (const flag of ["--config", "--out", "--baseline", "--state", "--no-history"]) if (flags[flag] !== undefined) throw new UsageError(`--demo creates its own workspace, so it cannot be combined with ${flag}`);
+    const dir = join(mkdtempSync(join(tmpdir(), "agentcrucible-demo-")), "northwind-support");
+    mkdirSync(dir);
+    console.log(`Creating the demo workspace in ${dir} ...`);
+    demoRegistry = (await createDemoWorkspace(dir, builtinRegistry())).registry;
+    process.chdir(dir);
+  }
   const ctx = await context(flags);
-  let { registry } = ctx;
+  let registry = demoRegistry ?? ctx.registry;
   const modules = [...(ctx.cfg.agent && isModulePath(ctx.cfg.agent) ? [ctx.cfg.agent] : []), ...(str(flags, "--agents") ?? "").split(",").map((a) => a.trim()).filter(Boolean)];
   for (const value of new Set(modules)) registry = (await resolveAgent(value, { ...ctx, registry })).registry;
   registry = registerExpectedModelAgents(loadAllScenarios(scenarioRoots(ctx.cfg), registry), { ...ctx, registry });
@@ -845,6 +856,9 @@ async function cmdUi(flags: Flags): Promise<number> {
     failOn: failOn(flags, ctx.cfg),
     timeoutMs: ctx.cfg.timeoutMs,
     concurrency: ctx.cfg.concurrency,
+    stateDir: flags["--no-history"] ? undefined : (str(flags, "--state") ?? ".agentcrucible/ui"),
+    config: { path: str(flags, "--config") ?? findConfigPath(), values: { ...ctx.cfg } },
+    demo: Boolean(flags["--demo"]),
   };
   const ports = rawPort === undefined ? [...Array.from({ length: 10 }, (_, i) => UI_PORT + i), 0] : [Number(rawPort)];
   let server: UiServer | undefined;
@@ -861,6 +875,7 @@ async function cmdUi(flags: Flags): Promise<number> {
   console.log(`  scenarios: bundled${ctx.cfg.scenarioDirs?.length ? `, ${ctx.cfg.scenarioDirs.join(", ")}` : ""}${options.scenarioDir ? ` (the editor saves to ${options.scenarioDir})` : ' (add "scenarioDirs" to the config file to save from the editor)'}`);
   console.log(`  reports:   ${out}`);
   console.log(`  baseline:  ${options.baselinePath}`);
+  console.log(`  history:   ${options.stateDir ? `${options.stateDir}/workspace.json` : "in memory (--no-history)"}`);
   if (!["127.0.0.1", "::1", "localhost"].includes(host)) {
     console.error(`warning: listening on ${host}${isIP(host) ? "" : " (a host name)"}; anyone who can reach it can run agents and write reports, scenarios, and the baseline here.`);
   }
@@ -984,7 +999,9 @@ replay options:  --scenario <id>, --json, --config (to load extension worlds and
 validate:        a file or directory (default: the bundled and configured scenario directories), --json, --config
 ui options:      --port <n> (default ${UI_PORT}, or the next free one), --host <addr> (default 127.0.0.1),
                  --out <dir>, --baseline <file> (default agentcrucible-baseline.json),
-                 --agents ./a.mjs,./b.mjs to add agent modules, --fail-on, --config
+                 --agents ./a.mjs,./b.mjs to add agent modules, --fail-on, --config,
+                 --state <dir> (default .agentcrucible/ui) or --no-history to keep runs in memory only,
+                 --demo to open a generated demo workspace with eight weeks of history
 
 Verdicts, most to least severe: ${VERDICTS.join(", ")}
 
