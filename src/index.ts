@@ -45,3 +45,6 @@ export { runSweep, sweepKinds, summarizeSweep, scoreCells, worstOf, formatSweep,
 export type { SweepOptions, SweepResult, SweepSummary, SweepCell, SweepStep, SweepKind, SweepScore } from "./sweep.js";
 export { computeCoverage, formatCoverage } from "./coverage.js";
 export type { Coverage, WorldCoverage, ToolCoverage, FaultKindCoverage, AgentCoverage, CoverageCell } from "./coverage.js";
+export { createModelAgent, registerModelAgent, parseModelAgentId, parseMaxSteps, requestKey, cassettePath, MODEL_PROVIDERS, DEFAULT_SYSTEM_PROMPT, DEFAULT_MAX_STEPS, MAX_MODEL_STEPS } from "./models.js";
+export type { ModelAgentSpec, ModelAgentOptions, ModelProvider } from "./models.js";
+export { describeUsage } from "./describe.js";

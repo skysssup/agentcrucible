@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
+import { parseMaxSteps } from "./models.js";
 import { parseConcurrency, parseTimeout, parseTrials } from "./runner.js";
 import { VERDICTS, type Verdict } from "./types.js";
 
@@ -25,6 +26,12 @@ export interface CrucibleConfig {
   timeoutMs?: number;
   /** Scenario-and-agent runs in flight at once (default 1). */
   concurrency?: number;
+  /** Directory where model-backed agents record provider responses and replay them from. */
+  record?: string;
+  /** File whose text replaces the default system prompt of model-backed agents. */
+  systemPrompt?: string;
+  /** Tool-calling steps a model-backed agent may take per trial (default 12). */
+  maxSteps?: number;
 }
 
 export const CONFIG_FILES = [
@@ -37,7 +44,7 @@ export const CONFIG_FILES = [
   ".agentcrucible/config.yml",
 ];
 
-const KEYS = ["agent", "trials", "seed", "out", "scenarioDirs", "defaultTag", "failOn", "extensions", "timeoutMs", "concurrency"];
+const KEYS = ["agent", "trials", "seed", "out", "scenarioDirs", "defaultTag", "failOn", "extensions", "timeoutMs", "concurrency", "record", "systemPrompt", "maxSteps"];
 
 /** The config file in `cwd`, or null. More than one candidate is an error. */
 export function findConfigPath(cwd = process.cwd()): string | null {
@@ -64,7 +71,7 @@ export function parseConfigText(text: string, pathHint = "config"): CrucibleConf
   for (const key of Object.keys(cfg)) {
     if (!KEYS.includes(key)) fail(`unknown key "${key}" (expected one of: ${KEYS.join(", ")})`);
   }
-  for (const key of ["agent", "seed", "out", "defaultTag"]) {
+  for (const key of ["agent", "seed", "out", "defaultTag", "record", "systemPrompt"]) {
     if (cfg[key] !== undefined && (typeof cfg[key] !== "string" || !(cfg[key] as string).trim())) {
       fail(`${key} must be a non-empty string`);
     }
@@ -77,7 +84,7 @@ export function parseConfigText(text: string, pathHint = "config"): CrucibleConf
       fail((err as Error).message);
     }
   }
-  for (const [key, parse] of [["timeoutMs", parseTimeout], ["concurrency", parseConcurrency]] as const) {
+  for (const [key, parse] of [["timeoutMs", parseTimeout], ["concurrency", parseConcurrency], ["maxSteps", parseMaxSteps]] as const) {
     if (cfg[key] === undefined) continue;
     if (typeof cfg[key] !== "number") fail(`${key} must be a number`);
     try {

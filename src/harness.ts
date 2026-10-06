@@ -1,6 +1,6 @@
 import { BUILTIN_FAULTS, selectFault, type FaultDefinition } from "./faults.js";
 import { jsonType, validate } from "./schema.js";
-import type { AgentMessage, Budget, FaultSpec, ToolCallRecord, ToolObservation, TrialTrace } from "./types.js";
+import type { AgentMessage, Budget, FaultSpec, ModelUsage, ToolCallRecord, ToolObservation, TrialTrace } from "./types.js";
 import { effectsBetween } from "./worlds/index.js";
 import type { World, WorldRecord, WorldTool } from "./worlds/types.js";
 
@@ -25,10 +25,11 @@ export interface AgentContext {
   signal: AbortSignal;
 }
 
-/** A final answer with structured output alongside the text. */
+/** A final answer with structured output alongside the text, and what a model spent producing it. */
 export interface AgentAnswer {
   text: string;
   output?: unknown;
+  usage?: ModelUsage;
 }
 
 /** An agent under test: uses the tools, then returns its final answer to the user. */
@@ -249,7 +250,7 @@ export async function runHarness(opts: HarnessOptions): Promise<TrialTrace> {
     }
   }
   finished = true;
-  const { text, output } = normalizeAnswer(answer, opts.agentId);
+  const { text, output, usage } = normalizeAnswer(answer, opts.agentId);
   messages.push({ role: "assistant", content: text });
 
   return {
@@ -261,6 +262,7 @@ export async function runHarness(opts: HarnessOptions): Promise<TrialTrace> {
     calls: caller.calls,
     finalAnswer: text,
     ...(output === undefined ? {} : { finalOutput: output }),
+    ...(usage === undefined ? {} : { usage }),
     worldBefore,
     worldAfter: world.snapshot(),
     agentId: opts.agentId,
@@ -270,14 +272,24 @@ export async function runHarness(opts: HarnessOptions): Promise<TrialTrace> {
 function normalizeAnswer(answer: unknown, agentId: string): AgentAnswer {
   if (typeof answer === "string") return { text: answer };
   if (typeof answer === "object" && answer !== null && typeof (answer as AgentAnswer).text === "string") {
-    const { text, output } = answer as AgentAnswer;
+    const { text, output, usage } = answer as AgentAnswer;
+    const normalized: AgentAnswer = { text };
     try {
-      return output === undefined ? { text } : { text, output: JSON.parse(JSON.stringify(output)) };
+      if (output !== undefined) normalized.output = JSON.parse(JSON.stringify(output));
     } catch {
       throw new Error(`agent "${agentId}" returned an output that is not JSON-serializable`);
     }
+    if (usage !== undefined) {
+      const fields = ["requests", "inputTokens", "outputTokens", "latencyMs", "recorded"] as const;
+      const u = usage as Partial<Record<(typeof fields)[number], unknown>> | null;
+      if (typeof u !== "object" || u === null || !fields.every((f) => typeof u[f] === "number" && Number.isFinite(u[f] as number) && (u[f] as number) >= 0)) {
+        throw new Error(`agent "${agentId}" returned a usage that is not { requests, inputTokens, outputTokens, latencyMs, recorded } with non-negative numbers`);
+      }
+      normalized.usage = Object.fromEntries(fields.map((f) => [f, u[f]])) as unknown as ModelUsage;
+    }
+    return normalized;
   }
-  throw new Error(`agent "${agentId}" must return its final answer as a string or as { text, output }`);
+  throw new Error(`agent "${agentId}" must return its final answer as a string or as { text, output, usage }`);
 }
 
 function error(message: string, code: string): ToolObservation {
