@@ -27,7 +27,7 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "build": "tsup src/cli.ts src/index.ts --format esm --dts --clean --outDir dist && tsup src/ui/client/app.ts --format esm --platform browser --target es2022 --outDir dist/ui --minify && npm run schema",
+    "build": "tsup src/cli.ts src/index.ts --format esm --clean --outDir dist && tsup src/ui/client/app.ts --format esm --platform browser --target es2022 --outDir dist/ui --minify && tsc -p tsconfig.build.json && npm run schema",
     "schema": "node dist/cli.js schema > schema/scenario.schema.json",
     "prepack": "npm run build",
     "typecheck": "tsc --noEmit && tsc -p test/tsconfig.json",
