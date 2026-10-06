@@ -6,6 +6,7 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import { compareBaseline, createBaseline, readBaseline, writeBaseline } from "../baseline.js";
+import { computeCoverage } from "../coverage.js";
 import { DEMO_SCENARIO, DEMO_SEED } from "../demo.js";
 import { describeFault, expectParts, worstTrial } from "../describe.js";
 import { logo, renderReportHtml } from "../html.js";
@@ -14,6 +15,7 @@ import { replayReport } from "../replay.js";
 import { readReportFile, writeHtmlReport, writeJsonReport, writeJUnitReport } from "../report.js";
 import { parseTrials, runMatrix } from "../runner.js";
 import { loadAllScenarios, parseScenario } from "../scenarios.js";
+import { DEFAULT_SWEEP_STEPS, parseSweepSteps, runSweep, summarizeSweep, sweepKinds, sweepMarkdown, type SweepCell, type SweepSummary } from "../sweep.js";
 import { VERDICTS, type RunReport, type Scenario, type Verdict } from "../types.js";
 import { VERSION } from "../version.js";
 import { UI_CSS } from "./styles.js";
@@ -60,6 +62,8 @@ class HttpError extends Error {
 const MEMORY_LIMIT = 200;
 /** Runs listed on the Runs page; their reports follow MEMORY_LIMIT. */
 const RUN_LIMIT = 50;
+/** Sweeps kept in memory for the Sweep page. */
+const SWEEP_LIMIT = 20;
 const BODY_LIMIT = 1_000_000;
 
 /**
@@ -74,6 +78,10 @@ export async function startUi(opts: UiOptions): Promise<UiServer> {
   const runs: RunRecord[] = [];
   let nextReport = 1;
   let nextRun = 1;
+  const sweeps: SweepResponse[] = [];
+  let nextSweep = 1;
+  /** Keys of the reports that sweeps produced; the Reports page does not list them and they cannot be saved. */
+  const sweepKeys = new Set<string>();
   const summaryCache = new Map<string, { mtimeMs: number; summary: ReportSummary }>();
 
   const scenarios = () => loadAllScenarios(opts.scenarioRoots, opts.registry);
@@ -91,11 +99,21 @@ export async function startUi(opts: UiOptions): Promise<UiServer> {
     if (!key.startsWith("file:")) throw new HttpError(400, "report keys start with mem- or file:");
     return readReportFile(reportPath(opts.outDir, key.slice(5)));
   };
-  const remember = (r: RunReport): string => {
+  const remember = (r: RunReport, limit = MEMORY_LIMIT): string => {
     const key = `mem-${nextReport++}`;
     memory.set(key, r);
-    if (memory.size > MEMORY_LIMIT) memory.delete(memory.keys().next().value!);
+    while (memory.size > limit) {
+      const oldest = memory.keys().next().value!;
+      memory.delete(oldest);
+      sweepKeys.delete(oldest);
+    }
     return key;
+  };
+
+  const sweepById = (id: string): SweepResponse => {
+    const found = sweeps.find((s) => s.sweepId === id);
+    if (!found) throw new HttpError(404, `no sweep with id ${id}; the server keeps the last ${SWEEP_LIMIT}`);
+    return found;
   };
 
   const api: Record<string, (req: IncomingMessage, url: URL) => Promise<unknown> | unknown> = {
@@ -147,6 +165,43 @@ export async function startUi(opts: UiOptions): Promise<UiServer> {
       runs.length = Math.min(runs.length, RUN_LIMIT);
       return run;
     },
+    "POST /api/sweep": async (req): Promise<SweepResponse> => {
+      const input = await body(req);
+      const scenarioId = stringField(input.scenarioId, "scenarioId");
+      const agentId = stringField(input.agentId, "agentId");
+      const names = input.kinds === undefined ? undefined : stringList(input.kinds, "kinds");
+      const seed = input.seed === undefined ? undefined : stringField(input.seed, "seed");
+      if (seed !== undefined && !seed.trim()) throw new HttpError(400, "seed must be a non-empty string");
+      let steps: number;
+      let trials: number;
+      try {
+        steps = parseSweepSteps(input.steps ?? DEFAULT_SWEEP_STEPS);
+        trials = parseTrials(input.trials ?? 1);
+        if (names) sweepKinds(opts.registry, names);
+      } catch (err) {
+        throw new HttpError(400, (err as Error).message);
+      }
+      if (!opts.registry.agents.has(agentId)) throw new HttpError(400, `unknown agent ${agentId}`);
+      const scenario = findScenario(scenarioId);
+      let result;
+      try {
+        result = await runSweep({ scenario, agentId, registry: opts.registry, kinds: names, steps, trials, seed, timeoutMs: opts.timeoutMs, concurrency: opts.concurrency });
+      } catch (err) {
+        throw new HttpError(400, (err as Error).message);
+      }
+      const limit = Math.max(MEMORY_LIMIT, result.cellReports.length + 1);
+      const baselineKey = remember(result.baselineReport, limit);
+      const cells = result.cells.map((cell, i) => ({ ...cell, key: remember(result.cellReports[i], limit) }));
+      for (const key of [baselineKey, ...cells.map((c) => c.key)]) sweepKeys.add(key);
+      const response: SweepResponse = { sweepId: `sweep-${nextSweep++}`, ...summarizeSweep(result), baselineKey, cells };
+      sweeps.unshift(response);
+      sweeps.length = Math.min(sweeps.length, SWEEP_LIMIT);
+      return response;
+    },
+    "GET /api/sweeps": (): SweepListItem[] => sweeps.map(({ cells, ...item }) => ({ ...item, cellCount: cells.length })),
+    "GET /api/sweep": (_req, url) => sweepById(param(url, "id")),
+    "GET /api/sweep/markdown": (_req, url) => ({ markdown: `${sweepMarkdown(sweepById(param(url, "id")))}\n` }),
+    "GET /api/coverage": () => computeCoverage(scenarios(), opts.registry),
     "GET /api/runs": () => runs,
     "GET /api/reports": () => {
       const saved = listReportFiles(opts.outDir).map((file) => {
@@ -163,13 +218,14 @@ export async function startUi(opts: UiOptions): Promise<UiServer> {
         summaryCache.set(file, { mtimeMs, summary });
         return summary;
       });
-      return { outDir: opts.outDir, saved, memory: [...memory].reverse().map(([key, r]) => ({ key, ...reportSummary(r) })) };
+      return { outDir: opts.outDir, saved, memory: [...memory].filter(([key]) => !sweepKeys.has(key)).reverse().map(([key, r]) => ({ key, ...reportSummary(r) })) };
     },
     "GET /api/report": (_req, url) => report(param(url, "key")),
     "POST /api/replay": async (req) => replayReport(report(stringField((await body(req)).key, "key")), opts.registry),
     "POST /api/save": async (req) => {
       const keys = stringList((await body(req)).keys, "keys");
       if (keys.length === 0 || keys.some((k) => !k.startsWith("mem-"))) throw new HttpError(400, "choose runs from this session to save (keys mem-N)");
+      if (keys.some((k) => sweepKeys.has(k))) throw new HttpError(400, "reports of a sweep cannot be saved; they stay in memory with the sweep");
       const files = keys.map((key) => {
         const r = report(key);
         const dir = join(opts.outDir, encodeURIComponent(r.agentId));
@@ -230,7 +286,7 @@ export async function startUi(opts: UiOptions): Promise<UiServer> {
     if (req.method === "GET" && url.pathname === "/") return page(res, indexHtml(token));
     if (req.method === "GET" && url.pathname === "/app.css") return asset(res, "text/css", UI_CSS);
     if (req.method === "GET" && url.pathname === "/theme.js") return asset(res, "text/javascript", THEME_JS);
-    if (req.method === "GET" && url.pathname === "/favicon.svg") return asset(res, "image/svg+xml", logo(32).replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" '));
+    if (req.method === "GET" && url.pathname === "/favicon.svg") return asset(res, "image/svg+xml", logo(32).replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ').replace("</svg>", "<style>svg{color:#18181b}@media(prefers-color-scheme:dark){svg{color:#fafafa}}</style></svg>"));
     if (req.method === "GET" && url.pathname.startsWith("/fonts/")) {
       const { FONTS } = await import("./fonts.js");
       const name = url.pathname.slice("/fonts/".length);
@@ -305,7 +361,7 @@ function meta(opts: UiOptions) {
         records: world.recordFields,
       };
     }),
-    faults: [...opts.registry.faults].map(([kind, e]) => ({ kind, stage: e.value.stage, description: e.value.description, params: Object.keys(e.value.params?.properties ?? {}), source: e.source })),
+    faults: [...opts.registry.faults].map(([kind, e]) => ({ kind, stage: e.value.stage, description: e.value.description, params: Object.keys(e.value.params?.properties ?? {}), required: (e.value.params?.required as string[] | undefined) ?? [], source: e.source })),
   };
 }
 
@@ -343,6 +399,18 @@ export interface RunRecord {
   draft: boolean;
   results: ReportSummary[];
 }
+
+/** One POST /api/sweep, kept for GET /api/sweep: the sweep without its reports, and the key of each report. */
+export interface SweepResponse extends SweepSummary {
+  sweepId: string;
+  /** Key of the report of the run without faults. */
+  baselineKey: string;
+  /** The cells in the order of `SweepSummary.cells`, each with the key of its report. */
+  cells: Array<SweepCell & { key: string }>;
+}
+
+/** An entry of GET /api/sweeps: a sweep without its cells. */
+export type SweepListItem = Omit<SweepResponse, "cells"> & { cellCount: number };
 
 /**
  * Accepts Host headers a browser sends for this server: localhost, an IP literal, or the
