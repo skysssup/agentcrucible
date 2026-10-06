@@ -7,14 +7,14 @@ import type { ScenarioSummary } from "../../api.js";
 import { observations } from "../lib/analytics.js";
 import { copy, download } from "../lib/dom.js";
 import { absTime, csv, esc, firstSentence, href, plural, relTime } from "../lib/format.js";
-import { patch } from "../lib/runtime.js";
+import { patch, runtime } from "../lib/runtime.js";
 import { load, store } from "../lib/state.js";
 import { icon } from "../icons.js";
 import type { Page } from "../routes.js";
 import { callout, emptyState, metaItem, pageHead, panel } from "../ui/layout.js";
 import { openChecklist, openMenu, type MenuItem } from "../ui/overlays.js";
 import { button, faultTag, filterButton, iconButton, searchInput, segmented, tip, toggle, worldChip, WORLD_ICONS } from "../ui/primitives.js";
-import { checksLabel, duplicateInEditor, healthBar, healthByScenario, kindsOf, latestLines, runHref, scenarioCommand, sweepHref, type Health } from "../ui/scenario-kit.js";
+import { checksLabel, deleteScenarios, duplicateInEditor, healthBar, healthByScenario, kindsOf, latestLines, runHref, scenarioCommand, sweepHref, type Health } from "../ui/scenario-kit.js";
 import { by, dataTable, redrawTable, registerTable, tableState, type Column, type TableState } from "../ui/table.js";
 import { vdot } from "../ui/verdicts.js";
 
@@ -144,11 +144,16 @@ function runButton(): string {
   return button(shown.length ? label : "Run selection", { href: runHref(shown), kind: "primary", icon: "play", disabled: !shown.length, title: "Open the launcher with every scenario shown; select rows to run fewer" });
 }
 
+/** The selected scenarios whose files the project owns, which are the only ones the API deletes. */
+function ownFiles(): ScenarioSummary[] {
+  return store.meta.scenarioDir ? all.filter((s) => selected.has(s.id) && !s.bundled && s.source) : [];
+}
+
 function bulkBar(): string {
   if (!selected.size) return "";
   const n = selected.size;
   const hidden = [...selected].filter((id) => !filterScenarios(all, current()).some((s) => s.id === id)).length;
-  return `<div class="bulkbar" role="region" aria-label="Selected scenarios"><b>${n}</b><span>selected${hidden ? ` · ${hidden} hidden by filters` : ""}</span>${button(`Run ${plural(n, "scenario")}`, { href: runHref([...selected]), kind: "primary", icon: "play", size: "sm" })}${button("Copy CLI commands", { action: "bulk-copy", icon: "terminal", size: "sm" })}${button("Export CSV", { action: "bulk-csv", icon: "download", size: "sm" })}${iconButton("x", "Clear the selection", { action: "bulk-clear", size: "sm" })}</div>`;
+  return `<div class="bulkbar" role="region" aria-label="Selected scenarios"><b>${n}</b><span>selected${hidden ? ` · ${hidden} hidden by filters` : ""}</span>${button(`Run ${plural(n, "scenario")}`, { href: runHref([...selected]), kind: "primary", icon: "play", size: "sm" })}${button("Sweep", { action: "bulk-sweep", icon: "grid", size: "sm", iconEnd: "chevronDown", attrs: 'aria-haspopup="menu"', title: "Open the sweep page for one of the selected scenarios" })}${button("Copy CLI commands", { action: "bulk-copy", icon: "terminal", size: "sm" })}${button("Export CSV", { action: "bulk-csv", icon: "download", size: "sm" })}${ownFiles().length ? button(`Delete ${ownFiles().length}`, { action: "bulk-delete", icon: "trash", kind: "danger", size: "sm", title: store.meta.scenarioDir ? "Delete the selected project scenario files; bundled scenarios stay" : "" }) : ""}${iconButton("x", "Clear the selection", { action: "bulk-clear", size: "sm" })}</div>`;
 }
 
 function syncSelection(): void {
@@ -328,6 +333,22 @@ const page: Page = {
     "bulk-copy": (el) => copy(all.filter((s) => selected.has(s.id)).map(scenarioCommand).join("\n"), el),
     "bulk-csv": () => download(`scenarios-${new Date().toISOString().slice(0, 10)}.csv`, scenariosCsv(all.filter((s) => selected.has(s.id)), health), "text/csv"),
     "export-all": () => download(`scenarios-${new Date().toISOString().slice(0, 10)}.csv`, scenariosCsv(filterScenarios(all, current()), health), "text/csv"),
+    "bulk-sweep": (el) => {
+      const picked = all.filter((s) => selected.has(s.id));
+      if (picked.length === 1) return runtime.navigate(sweepHref(picked[0].id));
+      openMenu([{ heading: "Sweep which scenario?" }, ...picked.map((s): MenuItem => ({ label: s.id, icon: "grid", href: sweepHref(s.id) }))], el);
+    },
+    "bulk-delete": async (el) => {
+      const own = ownFiles();
+      el.classList.add("is-busy");
+      try {
+        const gone = await deleteScenarios(own.map((s) => s.id));
+        for (const id of gone) selected.delete(id);
+        if (gone.length) await runtime.rerender();
+      } finally {
+        el.classList.remove("is-busy");
+      }
+    },
     "bulk-clear": () => {
       selected.clear();
       redrawTable(TABLE);

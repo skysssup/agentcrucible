@@ -198,3 +198,35 @@ export async function deleteScenario(id: string, source: string | null): Promise
   toast(`${source ?? id} was removed.`, "ok", { title: `Deleted ${id}` });
   return true;
 }
+
+/** Deletes the project's own scenario files after one confirmation; resolves with the ids that were removed. */
+export async function deleteScenarios(ids: string[]): Promise<string[]> {
+  const list = ids.length > 6 ? [...ids.slice(0, 6), `and ${ids.length - 6} more`] : ids;
+  const ok =
+    !store.prefs.confirm ||
+    (await confirmDialog({
+      title: `Delete ${ids.length} ${ids.length === 1 ? "scenario" : "scenarios"}?`,
+      body: `This removes the files of ${list.map((id) => `<code class="code-inline">${esc(id)}</code>`).join(", ")} from disk. Results that used them stay in the history, but they can no longer be regenerated.`,
+      confirm: `Delete ${ids.length}`,
+      danger: true,
+      icon: "trash",
+    }));
+  if (!ok) return [];
+  const gone: string[] = [];
+  const failed: string[] = [];
+  for (const id of ids) {
+    try {
+      await api("/api/scenario/delete", { id });
+      store.scenarioDetails.delete(id);
+      gone.push(id);
+    } catch (err) {
+      failed.push(`${id}: ${(err as Error).message}`);
+    }
+  }
+  invalidate("scenarios", "coverage", "activity");
+  await load.scenarios(true);
+  runtime.refreshShell();
+  if (gone.length) toast(`${gone.length} ${gone.length === 1 ? "file was" : "files were"} removed.`, "ok", { title: `Deleted ${gone.length === 1 ? gone[0] : `${gone.length} scenarios`}` });
+  if (failed.length) toast(failed.join("\n"), "bad", { title: "Some scenarios were not deleted" });
+  return gone;
+}
