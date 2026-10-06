@@ -215,7 +215,7 @@ export const REPORT_CSS = `
   .rpt a[href^="#t"] { text-decoration:none; }
   .rpt a[href^="#t"] code { padding:1px 5px; border-radius:4px; background:var(--accent-soft); color:var(--accent-fg); font-size:11px; white-space:nowrap; }
   .rpt a[href^="#t"]:hover code { background:var(--accent-line); }
-  @media (max-width: 980px) { .rpt-summary, .trial { grid-template-columns:1fr; } .trial-aside { position:static; max-height:none; } }
+  @media (max-width: 980px) { .rpt-summary, .trial { grid-template-columns:minmax(0,1fr); } .trial-aside { position:static; max-height:none; } }
 `;
 
 /** The brand bar and page frame of the standalone report, run index, and sweep page. */
@@ -569,7 +569,7 @@ export function sweepHeatMap(s: SweepSummary, href?: (cell: SweepCell) => string
 export const SWEEP_CSS = `
   .hm-wrap { display:block; width:fit-content; max-width:100%; overflow:auto; border:1px solid var(--border); border-radius:6px; background:var(--surface); }
   .hm { width:auto; }
-  .hm th, .hm td { height:auto; padding:4px; border-bottom:1px solid var(--border); text-align:center; }
+  .hm th, .hm td { height:auto; padding:3px 4px; border-bottom:1px solid var(--border); text-align:center; }
   .hm tfoot th, .hm tfoot td, .hm tbody tr:last-child > * { border-bottom:0; }
   .hm tfoot > tr > * { border-top:1px solid var(--border); }
   .hm thead th { padding:8px 4px; background:var(--surface-2); vertical-align:bottom; text-transform:none; letter-spacing:0; }
@@ -578,12 +578,12 @@ export const SWEEP_CSS = `
   .hm-tool { display:block; color:var(--fg); font:500 11px/1.3 var(--font-mono); overflow-wrap:anywhere; }
   .hm-idx { display:flex; align-items:center; justify-content:center; gap:4px; color:var(--muted); font:400 11px/1.3 var(--font-mono); }
   .hm-w { padding:0 3px; border:1px solid var(--border-2); border-radius:3px; color:var(--muted); font:500 9px/12px var(--font-sans); letter-spacing:.04em; text-transform:uppercase; }
-  .hm .hm-kind { position:sticky; left:0; z-index:1; min-width:150px; padding:4px 12px; background:var(--surface); text-align:left; text-transform:none; letter-spacing:0; white-space:nowrap; }
+  .hm .hm-kind { position:sticky; left:0; z-index:1; min-width:150px; padding:3px 12px; background:var(--surface); text-align:left; text-transform:none; letter-spacing:0; white-space:nowrap; }
   .hm .hm-kind code { color:var(--fg); font-size:12px; font-weight:500; }
   .hm .hm-kind small { margin-left:8px; color:var(--muted); font-size:11px; }
   .hm tfoot .hm-kind { color:var(--muted); font:500 11px/1.3 var(--font-sans); letter-spacing:.04em; text-transform:uppercase; }
   .hm .hm-end { width:56px; text-align:center; }
-  .hm-cell { display:inline-flex; align-items:center; justify-content:center; min-width:40px; height:24px; padding:0 6px; border:1px solid var(--v-bd, var(--border)); border-radius:4px; background:var(--v-bg, transparent); color:var(--v-fg, var(--muted)); font:500 11px/1 var(--font-mono); text-decoration:none; transition:border-color .12s; }
+  .hm-cell { display:inline-flex; align-items:center; justify-content:center; min-width:40px; height:22px; padding:0 6px; border:1px solid var(--v-bd, var(--border)); border-radius:4px; background:var(--v-bg, transparent); color:var(--v-fg, var(--muted)); font:500 11px/1 var(--font-mono); text-decoration:none; transition:border-color .12s; }
   a.hm-cell:hover { border-color:var(--v); }
   .hm-cell.hm-off { border-style:dashed; opacity:.55; }
   .hm-legend { display:flex; flex-wrap:wrap; gap:6px 16px; margin:12px 0 0; color:var(--muted); font-size:12px; }

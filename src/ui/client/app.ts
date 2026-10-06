@@ -598,6 +598,13 @@ function newRun(): void {
   form.querySelector<HTMLButtonElement>("button[type=submit]")?.focus({ preventScroll: true });
 }
 
+/** Keeps the sweep form's "n of m selected" in step with the fault kind boxes. */
+function updateKindCount(): void {
+  const boxes = [...document.querySelectorAll<HTMLInputElement>('.sw-form input[name="kind"]:not(:disabled)')];
+  const label = document.getElementById("sw-kind-count");
+  if (label) label.textContent = `${boxes.filter((b) => b.checked).length} of ${boxes.length} selected`;
+}
+
 /** Keeps the run form's note and button in step with the scenario selection. */
 function updateSelection(): void {
   for (const box of document.querySelectorAll<HTMLInputElement>('input[data-action="select-scenario"]')) {
@@ -659,7 +666,7 @@ async function act(action: string, el: HTMLElement): Promise<void> {
     case "kinds": {
       const form = el.closest("form");
       for (const box of form?.querySelectorAll<HTMLInputElement>('input[name="kind"]:not(:disabled)') ?? []) box.checked = el.dataset.pick === "all";
-      return;
+      return updateKindCount();
     }
     case "copy-sweep-markdown": {
       const sweep = state.sweeps.get(el.dataset.sweep ?? "");
@@ -1027,6 +1034,8 @@ app.addEventListener("change", (e) => {
       actions.innerHTML = reportActions(state.selectedReports.size);
       actions.classList.toggle("show", state.selectedReports.size > 0);
     }
+  } else if (el.name === "kind") {
+    updateKindCount();
   } else if (el.id === "filter-faults") {
     document.getElementById("report-root")?.classList.toggle("filter-faults", el.checked);
   } else if (el.name === "agent" && el.closest('form[data-action="run-draft"]')) {

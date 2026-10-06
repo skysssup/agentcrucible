@@ -1070,8 +1070,9 @@ export function sweepCsv(s: SweepSummary): string {
   return csv([["fault_kind", "stage", "step", "tool", "call_index", "mutating", "verdict", "rule", "fired", "calls", "reason"], ...rows]);
 }
 
-function sweepForm(meta: Meta, scenarios: ScenarioSummary[], f: SweepFormState): string {
+function sweepForm(meta: Meta, scenarios: ScenarioSummary[], f: SweepFormState, open: boolean): string {
   const checked = (kind: string) => (f.kinds ? f.kinds.includes(kind) : true);
+  const sweepable = meta.faults.filter((k) => !k.required?.length);
   return `<form class="card sw-form" data-action="run-sweep">
   <label class="field"><span>Scenario</span><input type="text" name="scenario" list="sweep-scenarios" value="${esc(f.scenario)}" placeholder="Search scenarios" autocomplete="off" spellcheck="false" required/></label>
   <datalist id="sweep-scenarios">${scenarios.map((s) => `<option value="${esc(s.id)}">${esc(firstSentence(s.description))}</option>`).join("")}</datalist>
@@ -1080,28 +1081,25 @@ function sweepForm(meta: Meta, scenarios: ScenarioSummary[], f: SweepFormState):
   <label class="field"><span>Trials</span><input type="number" name="trials" min="1" max="10000" value="${esc(f.trials)}"/></label>
   <label class="field field-seed"><span>Seed</span><input type="text" name="seed" value="${esc(f.seed)}" placeholder="sweep-&lt;scenario id&gt;"/></label>
   <button type="submit" class="btn btn-primary">${icon("play", 14)}<span>Run sweep</span></button>
-  <div class="sw-kinds"><div class="sw-kinds-head"><span class="label">Fault kinds</span><span class="agent-quick"><button type="button" data-action="kinds" data-pick="none">None</button><button type="button" data-action="kinds" data-pick="all">All</button></span></div>
+  <details class="sw-kinds"${open ? " open" : ""}><summary><span class="label">Fault kinds</span><span class="muted small" id="sw-kind-count">${sweepable.filter((k) => checked(k.kind)).length} of ${sweepable.length} selected</span><span class="agent-quick"><button type="button" data-action="kinds" data-pick="none">None</button><button type="button" data-action="kinds" data-pick="all">All</button></span></summary>
     <div class="chip-row">${meta.faults
       .map((k) => {
         const needs = k.required?.length ? ` title="${esc(`needs params (${k.required.join(", ")}), so a sweep cannot inject it`)}" ` : ` title="${esc(k.description)}" `;
         return `<label class="sw-kind"${needs}><input type="checkbox" name="kind" value="${esc(k.kind)}"${k.required?.length ? " disabled" : checked(k.kind) ? " checked" : ""}/>${esc(k.kind)}<small>${esc(k.stage)}</small></label>`;
       })
-      .join("")}</div></div>
+      .join("")}</div></details>
 </form>`;
 }
 
 function sweepResult(s: SweepResponse): string {
   const keys = new Map(s.cells.map((c) => [`${c.kind}\n${c.step}`, c.key]));
   const critical = s.cells.filter((c) => c.fired && (c.verdict === "HARMFUL_ACTION" || c.verdict === "SILENT_FAILURE")).sort((a, b) => a.step - b.step || a.kind.localeCompare(b.kind));
-  const attrs = `data-sweep="${esc(s.sweepId)}"`;
   const label = (c: { step: number }) => sweepStepLabel(s.steps[c.step - 1]);
-  return `<section id="sweep-result" ${attrs}>
+  return `<section id="sweep-result" data-sweep="${esc(s.sweepId)}">
   <div class="card-head">
     <h2><a class="link mono" href="${href("scenario", s.scenarioId)}">${esc(s.scenarioId)}</a> <span class="muted">with</span> <code>${esc(s.agentId)}</code></h2>
-    <span class="spacer"></span>
-    ${button("Markdown", { action: "copy-sweep-markdown", icon: "copy", kind: "ghost", small: true, attrs, title: "Copy the heat map as a Markdown table" })}${button("CSV", { action: "download-sweep-csv", icon: "download", kind: "ghost", small: true, attrs, title: "Download every cell as CSV" })}${button("CLI", { action: "copy-sweep-command", icon: "terminal", kind: "ghost", small: true, attrs, title: "Copy the command that repeats this sweep" })}
+    <span class="meta-chips" style="margin:0"><span class="meta-chip">seed <code>${esc(s.seed)}</code></span><span class="meta-chip">${plural(s.trials, "trial")} per run</span><span class="meta-chip">${s.sweepId}, ${Math.round(s.durationMs)} ms</span><span class="meta-chip">baseline without faults ${badge(s.baseline.verdict)} <a class="link" href="${href("report", s.baselineKey)}">report</a></span></span>
   </div>
-  <p class="meta-chips" style="margin:0 0 12px"><span class="meta-chip">seed <code>${esc(s.seed)}</code></span><span class="meta-chip">${plural(s.trials, "trial")} per run</span><span class="meta-chip">${s.sweepId}, ${Math.round(s.durationMs)} ms</span><span class="meta-chip">baseline without faults ${badge(s.baseline.verdict)} <a class="link" href="${href("report", s.baselineKey)}">report</a></span></p>
   <div class="kpis kpis-4">
     ${kpi("Runs", s.score.runs, `${plural(s.kinds.length, "kind")} × ${plural(s.steps.length, "step")}`)}
     ${kpi("Ended safe", s.score.safe, "SAFE_SUCCESS or SAFE_FAILURE")}
@@ -1121,11 +1119,15 @@ function sweepResult(s: SweepResponse): string {
 }
 
 export function sweepView(meta: Meta, scenarios: ScenarioSummary[], form: SweepFormState, sweeps: SweepListItem[], current?: SweepResponse, error?: string): string {
+  const attrs = `data-sweep="${esc(current?.sweepId ?? "")}"`;
+  const exports = current
+    ? `${button("Copy as Markdown", { action: "copy-sweep-markdown", icon: "copy", attrs, title: "Copy the heat map as a Markdown table" })}${button("Download CSV", { action: "download-sweep-csv", icon: "download", attrs, title: "Download every cell as CSV" })}${button("Copy CLI command", { action: "copy-sweep-command", icon: "terminal", attrs, title: "Copy the command that repeats this sweep" })}`
+    : "";
   return `<div class="page">
-  ${pageHead({ title: "Sweep", sub: "Run an agent once without faults, then inject every fault kind at every step of its path, one fault per run, and grade each run with the scenario's own expectations." })}
-  ${sweepForm(meta, scenarios, form)}
+  ${pageHead({ actions: exports, title: "Sweep", sub: current ? undefined : "Run an agent once without faults, then inject every fault kind at every step of its path, one fault per run, and grade each run with the scenario's own expectations." })}
+  ${sweepForm(meta, scenarios, form, !current)}
   ${error ? `<div class="alert alert-bad" style="margin-top:16px">${icon("alert", 14)}<div>${esc(error)}</div></div>` : ""}
-  <div style="margin-top:24px">${current ? sweepResult(current) : ""}</div>
+  <div style="margin-top:16px">${current ? sweepResult(current) : ""}</div>
   <section style="margin-top:24px">
     <div class="card-head"><h2>Recent sweeps</h2><span class="muted small">${sweeps.length ? "this session" : ""}</span></div>
     ${

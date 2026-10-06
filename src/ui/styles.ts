@@ -213,7 +213,7 @@ export const UI_CSS = `${BASE_CSS}${REPORT_CSS}${SWEEP_CSS}
   .search:focus-within { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-soft); }
   .search input { flex:1; min-width:0; height:100%; padding:0; border:0; outline:0; background:transparent; color:var(--fg); font-size:13px; }
   .search input::placeholder { color:var(--muted); }
-  .seg { display:inline-flex; border:1px solid var(--border-2); border-radius:4px; background:var(--surface); }
+  .seg { display:inline-flex; max-width:100%; overflow-x:auto; border:1px solid var(--border-2); border-radius:4px; background:var(--surface); }
   .seg-wrap { flex-wrap:wrap; }
   .seg-btn { display:inline-flex; align-items:center; gap:6px; height:30px; padding:0 10px; border:0; border-right:1px solid var(--border); background:transparent; color:var(--fg-2); font-size:12px; font-weight:500; white-space:nowrap; cursor:pointer; transition:background .12s, color .12s; }
   .seg-btn:first-child { border-radius:3px 0 0 3px; } .seg-btn:last-child { border-right:0; border-radius:0 3px 3px 0; }
@@ -349,7 +349,7 @@ export const UI_CSS = `${BASE_CSS}${REPORT_CSS}${SWEEP_CSS}
   .tbl .rules { display:flex; flex-direction:column; align-items:flex-start; gap:2px; }
   .tbl .seed { display:inline-block; max-width:220px; overflow:hidden; text-overflow:ellipsis; vertical-align:middle; }
   .tbl td.bar-cell { min-width:120px; }
-  .selbar { position:sticky; bottom:16px; z-index:20; display:flex; align-items:center; gap:8px; width:max-content; max-width:100%; margin:16px auto 0; padding:6px 6px 6px 12px; border:1px solid var(--border-2); border-radius:6px; background:var(--surface); box-shadow:var(--shadow-pop); opacity:0; pointer-events:none; transition:opacity .12s; }
+  .selbar { position:sticky; bottom:16px; z-index:20; display:flex; flex-wrap:wrap; align-items:center; gap:8px; width:fit-content; max-width:100%; margin:16px auto 0; padding:6px 6px 6px 12px; border:1px solid var(--border-2); border-radius:6px; background:var(--surface); box-shadow:var(--shadow-pop); opacity:0; pointer-events:none; transition:opacity .12s; }
   .selbar.show { opacity:1; pointer-events:auto; }
   .selbar-count { margin-right:6px; font-size:13px; white-space:nowrap; }
   .selbar-count b { font-family:var(--font-mono); }
@@ -473,7 +473,10 @@ export const UI_CSS = `${BASE_CSS}${REPORT_CSS}${SWEEP_CSS}
   .sw-kind:has(input:focus-visible) { outline:2px solid var(--focus); outline-offset:1px; }
   .sw-kind:has(input:disabled) { opacity:.5; cursor:not-allowed; }
   .sw-kind small { color:var(--muted); font-size:11px; }
-  .sw-kinds-head { display:flex; align-items:center; gap:8px; margin:0 0 6px; }
+  .sw-kinds > summary { display:flex; align-items:center; gap:12px; margin:0 0 6px; list-style:none; cursor:pointer; }
+  .sw-kinds > summary::-webkit-details-marker { display:none; }
+  .sw-kinds > summary::before { content:""; width:5px; height:5px; border-right:1.5px solid var(--muted); border-bottom:1.5px solid var(--muted); transform:rotate(-45deg); transition:transform .12s; }
+  .sw-kinds[open] > summary::before { transform:rotate(45deg); }
   .cov-wrap { overflow:auto; border:1px solid var(--border); border-radius:6px; background:var(--surface); }
   .cov { width:auto; min-width:100%; }
   .cov th, .cov td { height:auto; padding:4px; border-bottom:1px solid var(--border); text-align:center; }

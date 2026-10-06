@@ -377,7 +377,7 @@ describe("UI views", () => {
     expect(html).toContain("not reached");
     expect(html).toContain("claimed &quot;done&quot;");
     expect(html).toContain('title="worst: SILENT_FAILURE"');
-    expect(html).toContain('data-action="copy-sweep-markdown"');
+    expect(html).toContain(`data-action="copy-sweep-markdown" title="Copy the heat map as a Markdown table" data-sweep="sweep-3"`);
     expect(html).not.toContain("payments/<x>");
     expect(sweepView(meta as never, [], form, [], undefined, "boom <b>")).toContain("boom &lt;b&gt;");
     expect(sweepView(meta as never, [], form, [], undefined)).toContain("No sweeps yet.");
