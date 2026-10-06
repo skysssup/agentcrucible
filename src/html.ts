@@ -536,9 +536,9 @@ export function worstVerdict(cells: SweepCell[]): Verdict | undefined {
   return VERDICTS.find((v) => cells.some((c) => c.verdict === v));
 }
 
-function worstDot(cells: SweepCell[]): string {
+function worstDot(cells: SweepCell[], tipAttr: (text: string) => string): string {
   const worst = worstVerdict(cells);
-  return worst ? `<span class="vdot ${esc(worst)}" title="worst: ${esc(worst)}"><span class="sr-only">worst: ${esc(worst)}</span></span>` : "";
+  return worst ? `<span class="vdot ${esc(worst)}"${tipAttr(`worst: ${worst}`)}><span class="sr-only">worst: ${esc(worst)}</span></span>` : "";
 }
 
 /** The tooltip of a heat map cell: verdict, deciding rule, and reason, or why the cell tested nothing. */
@@ -547,56 +547,74 @@ export function sweepCellTitle(cell: SweepCell): string {
   return lines.join("\n");
 }
 
+/** How the heat map explains itself, and whether it is still filling in. */
+export interface HeatMapOptions {
+  /** "data" puts explanations in data-tip attributes for the local UI's tooltips; the standalone page uses title. */
+  tips?: "title" | "data";
+  /** For a sweep in progress: cells it has not produced yet are drawn as waiting, the next one as running, and steps without a tool by number. */
+  live?: boolean;
+}
+
 /**
  * The sweep heat map: one row per fault kind, one column per step of the clean path. `href` turns
  * a cell into a link, for the local UI; the standalone page shows plain text.
  */
-export function sweepHeatMap(s: SweepSummary, href?: (cell: SweepCell) => string | undefined): string {
+export function sweepHeatMap(s: SweepSummary, href?: (cell: SweepCell) => string | undefined, opts: HeatMapOptions = {}): string {
+  const tipAttr = (text: string) => ` ${opts.tips === "data" ? "data-tip" : "title"}="${esc(text)}"`;
   const head = s.steps
-    .map((st) => `<th scope="col" class="hm-step" title="step ${st.step}: ${esc(sweepStepLabel(st))}${st.mutating ? ", changes state" : ""}"><span class="hm-tool">${esc(st.tool)}</span><span class="hm-idx">#${st.callIndex}${st.mutating ? '<i class="hm-w" title="changes state">writes</i>' : ""}</span></th>`)
+    .map((st) =>
+      st.tool
+        ? `<th scope="col" class="hm-step"${tipAttr(`step ${st.step}: ${sweepStepLabel(st)}${st.mutating ? ", changes state" : ""}`)}><span class="hm-tool">${esc(st.tool)}</span><span class="hm-idx">#${st.callIndex}${st.mutating ? `<i class="hm-w"${tipAttr("changes state")}>writes</i>` : ""}</span></th>`
+        : `<th scope="col" class="hm-step"><span class="hm-tool">step ${st.step}</span></th>`
+    )
     .join("");
+  const next = opts.live ? s.kinds.flatMap((k) => s.steps.map((st) => ({ kind: k.kind, step: st.step }))).find((x) => !s.cells.some((c) => c.kind === x.kind && c.step === x.step)) : undefined;
   const rows = s.kinds
     .map((kind) => {
       const own = s.cells.filter((c) => c.kind === kind.kind);
       const cells = s.steps
         .map((st) => {
           const cell = own.find((c) => c.step === st.step);
-          if (!cell) return "<td></td>";
+          if (!cell && next?.kind === kind.kind && next.step === st.step) return '<td><span class="hm-cell hm-running" aria-label="running"><span class="spinner"></span></span></td>';
+          if (!cell) return opts.live ? '<td><span class="hm-cell hm-pending" aria-label="waiting"></span></td>' : "<td></td>";
           const text = cell.fired ? VERDICT_CODE[cell.verdict] : `(${VERDICT_CODE[cell.verdict]})`;
-          const attrs = `class="hm-cell ${esc(cell.verdict)}${cell.fired ? "" : " hm-off"}" title="${esc(sweepCellTitle(cell))}" aria-label="${esc(`${kind.kind} at ${sweepStepLabel(st)}: ${cell.verdict}${cell.fired ? "" : ", not reached"}`)}"`;
+          const attrs = `class="hm-cell ${esc(cell.verdict)}${cell.fired ? "" : " hm-off"}"${tipAttr(sweepCellTitle(cell))} aria-label="${esc(`${kind.kind} at ${st.tool ? sweepStepLabel(st) : `step ${st.step}`}: ${cell.verdict}${cell.fired ? "" : ", not reached"}`)}"`;
           const link = href?.(cell);
           return `<td>${link ? `<a ${attrs} href="${esc(link)}">${text}</a>` : `<span ${attrs}>${text}</span>`}</td>`;
         })
         .join("");
-      return `<tr><th scope="row" class="hm-kind"><code>${esc(kind.kind)}</code><small>${esc(kind.stage)}</small></th>${cells}<td class="hm-end">${worstDot(own)}</td></tr>`;
+      return `<tr><th scope="row" class="hm-kind"${tipAttr(kind.description)}><code>${esc(kind.kind)}</code><small>${esc(kind.stage)}</small></th>${cells}<td class="hm-end">${worstDot(own, tipAttr)}</td></tr>`;
     })
     .join("");
-  const foot = s.steps.map((st) => `<td>${worstDot(s.cells.filter((c) => c.step === st.step))}</td>`).join("");
-  return `<div class="hm-wrap"><table class="hm"><thead><tr><th class="hm-corner">Fault kind</th>${head}<th class="hm-end" title="Worst verdict of the row">Worst</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th scope="row" class="hm-kind">Worst</th>${foot}<td></td></tr></tfoot></table></div>
-  <p class="hm-legend">${VERDICTS.map((v) => `<span><span class="hm-cell hm-key ${v}">${VERDICT_CODE[v]}</span>${v}</span>`).join("")}<span><span class="hm-cell hm-key hm-off">(SS)</span>the fault was never reached</span></p>`;
+  const foot = s.steps.map((st) => `<td>${worstDot(s.cells.filter((c) => c.step === st.step), tipAttr)}</td>`).join("");
+  return `<div class="hm-wrap"><table class="hm"><thead><tr><th class="hm-corner">Fault kind</th>${head}<th class="hm-end"${tipAttr("Worst verdict of the row")}>Worst</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th scope="row" class="hm-kind">Worst</th>${foot}<td></td></tr></tfoot></table></div>
+  <p class="hm-legend">${VERDICTS.map((v) => `<span><span class="hm-cell hm-key ${v}">${VERDICT_CODE[v]}</span>${v}</span>`).join("")}<span><span class="hm-cell hm-key hm-off">(SS)</span>the fault was never reached</span>${opts.live ? '<span><span class="hm-cell hm-key hm-pending"></span>waiting</span>' : ""}</p>`;
 }
 
 /** Styles for the heat map, shared by the standalone sweep page and the local UI. */
 export const SWEEP_CSS = `
-  .hm-wrap { display:block; width:fit-content; max-width:100%; overflow:auto; border:1px solid var(--border); border-radius:6px; background:var(--surface); }
+  .hm-wrap { display:block; width:fit-content; max-width:100%; overflow:auto; border:1px solid var(--border); border-radius:var(--r-md); background:var(--surface); }
   .hm { width:auto; }
   .hm th, .hm td { height:auto; padding:3px 4px; border-bottom:1px solid var(--border); text-align:center; }
   .hm tfoot th, .hm tfoot td, .hm tbody tr:last-child > * { border-bottom:0; }
   .hm tfoot > tr > * { border-top:1px solid var(--border); }
+  .hm tbody tr:hover > * { background:var(--surface-2); }
   .hm thead th { padding:8px 4px; background:var(--surface-2); vertical-align:bottom; text-transform:none; letter-spacing:0; }
-  .hm .hm-corner { text-align:left; padding-left:12px; color:var(--muted); font:500 11px/1.3 var(--font-sans); letter-spacing:.04em; text-transform:uppercase; }
+  .hm .hm-corner, .hm tfoot .hm-kind { color:var(--muted); font:500 10.5px/1.3 var(--font-mono); letter-spacing:.06em; text-align:left; text-transform:uppercase; }
+  .hm .hm-corner { padding-left:12px; }
   .hm .hm-step { min-width:88px; font-weight:400; }
   .hm-tool { display:block; color:var(--fg); font:500 11px/1.3 var(--font-mono); overflow-wrap:anywhere; }
   .hm-idx { display:flex; align-items:center; justify-content:center; gap:4px; color:var(--muted); font:400 11px/1.3 var(--font-mono); }
-  .hm-w { padding:0 3px; border:1px solid var(--border-2); border-radius:3px; color:var(--muted); font:500 10px/12px var(--font-sans); letter-spacing:.04em; text-transform:uppercase; }
+  .hm-w { padding:0 3px; border:1px solid var(--border-2); border-radius:var(--r-xs); color:var(--muted); font:500 9.5px/12px var(--font-mono); font-style:normal; letter-spacing:.04em; text-transform:uppercase; }
   .hm .hm-kind { position:sticky; left:0; z-index:1; min-width:150px; padding:3px 12px; background:var(--surface); text-align:left; text-transform:none; letter-spacing:0; white-space:nowrap; }
   .hm .hm-kind code { color:var(--fg); font-size:12px; font-weight:500; }
-  .hm .hm-kind small { margin-left:8px; color:var(--muted); font-size:11px; }
-  .hm tfoot .hm-kind { color:var(--muted); font:500 11px/1.3 var(--font-sans); letter-spacing:.04em; text-transform:uppercase; }
+  .hm .hm-kind small { margin-left:8px; color:var(--muted); font:400 10.5px var(--font-mono); }
   .hm .hm-end { width:56px; text-align:center; }
-  .hm-cell { display:inline-flex; align-items:center; justify-content:center; min-width:40px; height:22px; padding:0 6px; border:1px solid var(--v-bd, var(--border)); border-radius:4px; background:var(--v-bg, transparent); color:var(--v-fg, var(--muted)); font:500 11px/1 var(--font-mono); text-decoration:none; transition:border-color .12s; }
-  a.hm-cell:hover { border-color:var(--v); }
+  .hm-cell { display:inline-flex; align-items:center; justify-content:center; min-width:40px; height:22px; padding:0 6px; border:1px solid var(--v-bd, var(--border)); border-radius:var(--r-sm); background:var(--v-bg, transparent); color:var(--v-fg, var(--muted)); font:500 11px/1 var(--font-mono); text-decoration:none; transition:border-color .12s, box-shadow .12s; }
+  a.hm-cell:hover { border-color:var(--v); box-shadow:0 0 0 1px var(--v); }
   .hm-cell.hm-off { border-style:dashed; opacity:.55; }
+  .hm-cell.hm-pending { border:1px dashed var(--border-2); background:transparent; }
+  .hm-cell.hm-running { border-color:var(--accent-line); background:var(--accent-soft); color:var(--accent-fg); }
   .hm-legend { display:flex; flex-wrap:wrap; gap:6px 16px; margin:12px 0 0; color:var(--muted); font-size:12px; }
   .hm-legend > span { display:inline-flex; align-items:center; gap:6px; }
   .hm-key { min-width:32px; height:20px; font-size:10px; }
