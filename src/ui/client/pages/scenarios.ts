@@ -125,7 +125,7 @@ function tagsControl(): string {
   const tags = [...new Set(all.flatMap((s) => s.tags))]
     .map((t) => ({ t, n: count(pool, (s) => s.tags.includes(t)) }))
     .sort((a, b) => b.n - a.n || a.t.localeCompare(b.t));
-  return `<span class="scn-tags-label">${icon("hash", 13)}Tags</span>${tags.map(({ t, n }) => `<button type="button" class="tag${t === filter.tag ? " on" : ""}${n ? "" : " empty"}" data-action="tag" data-value="${esc(t)}" aria-pressed="${t === filter.tag}">${esc(t)}<span class="tag-n">${n}</span></button>`).join("")}`;
+  return `<span class="scn-tags-label">${icon("hash", 13)}Tags</span>${tags.map(({ t, n }) => `<button type="button" class="tag${t === filter.tag ? " on" : ""}${n ? "" : " zero"}" data-action="tag" data-value="${esc(t)}" aria-pressed="${t === filter.tag}">${esc(t)}<span class="tag-n">${n}</span></button>`).join("")}`;
 }
 
 function statusLine(shown: number): string {

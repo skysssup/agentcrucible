@@ -203,7 +203,7 @@ describe("Scenarios pages", () => {
     const html = outlineList(items);
     expect(html).toContain("&lt;x&gt;");
     expect(html).toContain('data-line="3"');
-    const meta = { worlds: [{ name: "payments", description: "", source: "", records: {}, tools: [{ name: "get_refund", description: "", mutating: false, inputSchema: {}, outputSchema: null }, { name: "create_refund", description: "", mutating: true, inputSchema: { properties: { idempotency_key: {} } }, outputSchema: null }] }], faults: [{ kind: "timeout", stage: "before", description: "d", params: [], required: [], source: "built-in" }, { kind: "timeout_after_commit", stage: "after", description: "d", params: [], required: [], source: "built-in" }] };
+    const meta = { worlds: [{ name: "payments", description: "", source: "", records: {}, tools: [{ name: "get_refund", description: "", mutating: false, inputSchema: {}, outputSchema: null }, { name: "create_refund", description: "", mutating: true, inputSchema: { properties: { idempotency_key: {} } }, outputSchema: null }] }], faults: [{ kind: "timeout", stage: "before", description: "d", params: [], required: [], source: "built-in" }, { kind: "timeout_after_commit", stage: "after", description: "d", params: [], required: [], source: "built-in" }] } as unknown as Parameters<typeof draftFor>[0];
     expect(draftFor(meta, new URLSearchParams("template=workflow"))?.text).toContain("custom/refund-and-notify");
     expect(draftFor(meta, new URLSearchParams(""))).toBeUndefined();
     expect(draftFor(meta, new URLSearchParams("new=1"))?.text).toContain("id: custom/refund-lost-response");

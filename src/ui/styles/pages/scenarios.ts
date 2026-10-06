@@ -13,7 +13,7 @@ export const SCENARIOS_CSS = `
   .scn-tags { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
   .scn-tags-label { display:inline-flex; align-items:center; gap:4px; margin-right:2px; color:var(--muted); font:500 10.5px var(--font-mono); letter-spacing:.06em; text-transform:uppercase; }
   .tag-n { opacity:.6; font:500 10.5px var(--font-mono); }
-  .tag.empty { opacity:.45; }
+  .tag.zero { opacity:.45; }
   .scn-attn { display:inline-flex; align-items:center; gap:6px; margin-left:auto; }
   .scn-attn-n { min-width:20px; padding:0 6px; border-radius:var(--r-full); background:var(--surface-3); color:var(--muted); font:600 10.5px/18px var(--font-mono); text-align:center; }
   .scn-attn-n.on { background:var(--bad-bg); color:var(--bad-fg); }
@@ -21,13 +21,13 @@ export const SCENARIOS_CSS = `
   .scn-chip { display:inline-flex; align-items:center; gap:5px; height:22px; padding:0 4px 0 8px; border:1px solid var(--border-2); border-radius:var(--r-full); color:var(--fg-2); font-size:11.5px; }
   .scn-chip-x { display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:50%; color:var(--muted); }
   .scn-chip-x:hover { background:var(--surface-3); color:var(--fg); }
-  .scn-main { min-width:200px; max-width:320px; }
+  .scn-main { min-width:200px; max-width:280px; }
   .scn-faults { max-width:210px; }
   .scn-faults .fault-tag, .scn-health .health { align-self:flex-start; }
   .scn-more { margin-left:6px; padding:0 5px; border-radius:var(--r-full); background:var(--surface-3); color:var(--muted); font:600 10.5px var(--font-mono); }
   .scn-exp { display:inline-flex; align-items:center; gap:6px; }
   .scn-exp b { color:var(--fg-2); font:500 11.5px var(--font-mono); }
-  .scn-checks { white-space:normal; min-width:110px; max-width:150px; font-size:12px; }
+  .scn-checks { white-space:normal; min-width:110px; max-width:130px; font-size:12px; }
   .scn-health { min-width:150px; }
   .scn-attn-row td:first-child { box-shadow:inset 2px 0 0 var(--bad); }
   .scn-bulk:empty { display:none; }
@@ -294,6 +294,8 @@ export const SCENARIOS_CSS = `
   }
   @media (max-width: 760px) {
     .scn-attn { margin-left:0; }
+    .scn-tags { flex-wrap:nowrap; padding-bottom:4px; overflow-x:auto; scrollbar-width:thin; }
+    .scn-tags .tag { flex:none; }
     .cat-faults, .cat-policies, .cat-verdicts, .ed-templates { grid-template-columns:minmax(0,1fr); }
     .sd-policies li { grid-template-columns:minmax(0,1fr); gap:4px; }
     .sd-strike-facts > div, .cat-fault-facts > div { grid-template-columns:minmax(0,1fr); gap:2px; }
