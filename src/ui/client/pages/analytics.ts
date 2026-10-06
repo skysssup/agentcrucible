@@ -4,14 +4,14 @@
  * version and scenario fares, and what the evidence suggests doing next.
  */
 import { adviceFor, type Insight, type Observation, agentRows, agentTrends, dailySeries, faultImpact, inRange, insights, matrix, observations, RANGES, summarize, scenarioRows, topRules, type Range, type ScenarioRow } from "../lib/analytics.js";
-import { filterObs, NO_FAULT, resultsCsv, versionHistory, versionMarks, type ObsFilter, type VersionStep } from "../lib/agents.js";
+import { filterObs, NO_FAULT, ownsVersions, resultsCsv, versionHistory, versionMarks, type ObsFilter, type VersionStep } from "../lib/agents.js";
 import { download } from "../lib/dom.js";
 import { absTime, clip, esc, href, num, pct, plural, relTime, shortDay, withQuery } from "../lib/format.js";
 import { patch } from "../lib/runtime.js";
 import { load, store } from "../lib/state.js";
 import { icon, type IconName } from "../icons.js";
 import type { Page } from "../routes.js";
-import { versionTag } from "../ui/agent-kit.js";
+import { verdictTint, versionTag } from "../ui/agent-kit.js";
 import { barList, chart, fitCharts, heatmap, rateColors, SERIES_COLORS, sparkline } from "../ui/charts.js";
 import { callout, emptyState, kpi, kpis, metaItem, pageHead, panel } from "../ui/layout.js";
 import { openChecklist, toast } from "../ui/overlays.js";
@@ -48,6 +48,12 @@ export function filterOptions(obs: Observation[]): Record<keyof ObsFilter, Array
   return { agents: count((o) => [o.agentId]), worlds: count((o) => o.worlds), tags: count((o) => o.tags), kinds: count((o) => (o.faultKinds.length ? o.faultKinds : [NO_FAULT])) };
 }
 
+/** The results of agents that carry their own versions; the built-in reference agents run beside them without one. */
+const versioned = (obs: Observation[]): Observation[] => {
+  const own = new Set(store.meta.agents.filter((a) => ownsVersions(a.source)).map((a) => a.id));
+  return obs.filter((o) => own.has(o.agentId));
+};
+
 const chosen = (): number => FILTERS.reduce((n, f) => n + filter[f.key].length, 0);
 
 function insightRow(i: Insight): string {
@@ -69,7 +75,6 @@ const scenarioColumns: Column<ScenarioRow>[] = [
 const versionColumns: Column<VersionStep>[] = [
   { id: "agent", label: "Agent", sort: by.text((r) => r.agent), render: (r) => `<a class="link-mono" href="${esc(href("agent", r.agent))}">${esc(r.agent)}</a>` },
   { id: "version", label: "Version", render: (r) => versionTag(r.version, `The version its runs were started with, ${plural(r.runs, "run")}`) },
-  { id: "runs", label: "Runs", num: true, sort: by.num((r) => r.runs), render: (r) => num(r.runs) },
   { id: "results", label: "Results", num: true, sort: by.num((r) => r.summary.total), render: (r) => num(r.summary.total) },
   { id: "safe", label: "Safe share", sort: by.num((r) => r.summary.safeRate), render: (r) => `${rateMeter(r.summary.safeRate)}${r.change === null ? "" : ` ${delta(r.change * 100, { unit: "pts", title: "Change from this agent's previous version" })}`}` },
   { id: "critical", label: "Critical", num: true, sort: by.num((r) => r.summary.critical), render: (r) => (r.summary.critical ? `<span class="bad-text">${r.summary.critical}</span>` : '<span class="faint">0</span>') },
@@ -83,7 +88,7 @@ function table<T>(id: string, columns: Column<T>[], rows: T[], defaults: { sort:
 }
 
 function trendPanel(current: Observation[], days: number, labels: string[], series: ReturnType<typeof dailySeries>): string {
-  const marks = versionMarks(current, series.map((p) => p.day));
+  const marks = versionMarks(versioned(current), series.map((p) => p.day));
   const actions = segmented("trend-mode", trendMode, [
     { value: "verdicts", label: "Verdicts" },
     { value: "agents", label: "By agent" },
@@ -131,11 +136,10 @@ function impactPanel(current: Observation[]): string {
           label: k.kind === NO_FAULT ? '<span class="muted">no fault scheduled</span>' : `<code>${esc(k.kind)}</code>`,
           value: k.criticalRate,
           display: `${k.critical} of ${k.total} critical · ${pct(k.safe, k.total)} safe`,
-          color: "var(--harm)",
+          color: verdictTint("HARMFUL_ACTION", 26),
           href: k.kind === NO_FAULT ? undefined : `#/catalog/faults?kind=${encodeURIComponent(k.kind)}`,
           tip: `${k.kind}: ${k.critical} of ${k.total} results ended HARMFUL_ACTION or SILENT_FAILURE`,
         })),
-        { max: 1 }
       )
     : emptyState({ icon: "zap", title: "No results", compact: true });
   return panel({ title: "Fault impact", icon: "zap", meta: "share of results that ended critical, by fault kind" }, body);
@@ -218,7 +222,7 @@ function view(): string {
   if (!current.length)
     return `${head}${bar}${panel({}, emptyState({ icon: "search", title: "No results in this view", text: `${plural(all.length, "result")} exist, but none falls in the last ${esc(rangeLabel)}${chosen() ? " with these filters" : ""}. Widen the period${chosen() ? " or clear the filters" : ""}.`, actions: `${range === "all" ? "" : button("All time", { action: "range", data: { value: "all" }, size: "sm" })}${chosen() ? button("Clear filters", { action: "clear-filters", size: "sm", kind: "ghost" }) : ""}` }))}`;
   const recs = insights(current, { coverage: store.coverage }).filter((i) => !i.id.startsWith("open:")).slice(0, 5);
-  const versions = versionHistory(current);
+  const versions = versionHistory(versioned(current));
   const scenarios = scenarioRows(current);
   const kpiRow = kpis([
     kpi({ label: "Safe share", icon: "shieldCheck", value: pct(now.safe, now.total), delta: delta(d(now.safeRate, before.safeRate), { unit: "pts", title: `vs ${pct(before.safe, before.total)} the period before` }), spark: sparkline(series.map((p) => p.safeRate), { width: 120, color: "var(--ssucc)", min: 0, max: 1, label: "safe share by day" }), sub: `${num(now.safe)} of ${num(now.total)} ended safe` }),
@@ -234,11 +238,11 @@ ${kpiRow}
 <div class="grid g-8-4">${trendPanel(current, spanDays, labels, series)}${mix}</div>
 <div class="grid g-7-5 mt-16">${impactPanel(current)}${rulesPanel(current)}</div>
 <div class="mt-16">${matrixPanel(current)}</div>
-<div class="grid g-7-5 mt-16">${panel({ title: "Scenarios", icon: "layers", meta: plural(scenarios.length, "scenario"), flush: true }, table(SCENARIOS, scenarioColumns, scenarios, { sort: "safe", dir: "asc" }, emptyState({ icon: "layers", title: "No scenarios", compact: true })))}${panel(
+<div class="mt-16">${panel({ title: "Scenarios", icon: "layers", meta: plural(scenarios.length, "scenario"), flush: true }, table(SCENARIOS, scenarioColumns, scenarios, { sort: "safe", dir: "asc" }, emptyState({ icon: "layers", title: "No scenarios", compact: true })))}</div>
+<div class="grid g-7-5 mt-16">${panel(
     { title: "Versions", icon: "flag", meta: "agent versions by the runs that carried them", flush: true },
     versions.length ? table(VERSIONS, versionColumns, versions, { sort: "first", dir: "desc" }, "") : emptyState({ icon: "flag", title: "No versions recorded", text: "Start a run with an agent version, and each release shows up here with its safe share.", compact: true })
-  )}</div>
-<div class="mt-16">${panel({ title: "Insights", icon: "lightbulb", meta: "from the evidence in view", flush: true }, recs.length ? `<ul class="insights">${recs.map(insightRow).join("")}</ul>` : emptyState({ icon: "lightbulb", title: "Nothing to recommend", text: "No pattern stands out in this view.", compact: true }))}</div>
+  )}${panel({ title: "Insights", icon: "lightbulb", meta: "from the evidence in view", flush: true }, recs.length ? `<ul class="insights">${recs.map(insightRow).join("")}</ul>` : emptyState({ icon: "lightbulb", title: "Nothing to recommend", text: "No pattern stands out in this view.", compact: true }))}</div>
 ${callout("info", "Results the history keeps are counted once, and a saved copy of a result is not a second result. Version labels come from the runs; the built-in reference agents carry none.", { title: "How the numbers are counted" })}`;
 }
 

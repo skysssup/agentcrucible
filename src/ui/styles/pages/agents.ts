@@ -165,4 +165,7 @@ export const AGENTS_CSS = `
   .an-bar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px 16px; margin:-4px 0 14px; }
   .an-filters { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
   @media (max-width: 760px) { .an-bar { align-items:flex-start; } }
+  .barlist li > a[style] { display:grid !important; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:12px; position:relative; height:100%; margin:0 -8px; padding:0 8px; }
+  .barlist li > a > .fill { position:absolute; inset:3px auto 3px 0; border-radius:var(--r-xs); background:var(--bl, var(--surface-3)); opacity:.9; }
+  .barlist li > a > :not(.fill) { position:relative; }
 `;
