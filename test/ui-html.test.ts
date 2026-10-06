@@ -87,6 +87,7 @@ describe("the flat design system", () => {
     }
     expect(UI_CSS).toContain("--accent:light-dark(#2563eb,#3b82f6)");
     expect(UI_CSS).toContain("--canvas:light-dark(#fafafa,#0b0c0e)");
+    expect(UI_CSS).toContain("html :not(#_) { font-variant-numeric:tabular-nums; }");
   });
 
   it("keeps the verdict classes the pages rely on", () => {

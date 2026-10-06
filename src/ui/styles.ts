@@ -9,7 +9,7 @@ export const UI_CSS = `${BASE_CSS}${REPORT_CSS}${SWEEP_CSS}
   body { overflow:hidden; }
   .i { flex:none; display:inline-block; vertical-align:middle; }
   .small { font-size:12px; } .mono { font-family:var(--font-mono); font-size:12px; } .nowrap { white-space:nowrap; } .spacer { flex:1; }
-  kbd { display:inline-flex; align-items:center; justify-content:center; min-width:18px; height:18px; padding:0 4px; border:1px solid var(--border-2); border-radius:4px; background:var(--surface); color:var(--muted); font:500 10px/1 var(--font-mono); }
+  kbd { display:inline-flex; align-items:center; justify-content:center; min-width:18px; height:18px; padding:0 4px; border:1px solid var(--border-2); border-radius:4px; background:var(--surface); color:var(--muted); font:500 11px/1 var(--font-mono); }
   code { color:inherit; }
   @keyframes spin { to { transform:rotate(360deg); } }
   @keyframes slide { from { transform:translateX(-100%); } to { transform:translateX(340%); } }
@@ -186,7 +186,7 @@ export const UI_CSS = `${BASE_CSS}${REPORT_CSS}${SWEEP_CSS}
   .facts dd code { font-size:12px; }
 
   .demo-facts { margin:0 0 16px; }
-  .demo-facts blockquote { margin:0; padding:0 0 0 12px; border-left:2px solid var(--border-2); font-size:13px; line-height:1.45; }
+  .demo-facts blockquote { margin:0; padding:0 0 0 12px; border-left:1px solid var(--border-2); font-size:13px; line-height:1.45; }
   .demo-calls { display:flex; flex-wrap:wrap; gap:4px 12px; margin:0; padding:0; list-style:none; }
   .demo-calls li { display:inline-flex; align-items:center; gap:6px; color:var(--fg-2); font-size:12px; white-space:nowrap; }
   .demo-calls code { color:var(--fg); font-size:12px; }
@@ -268,7 +268,7 @@ export const UI_CSS = `${BASE_CSS}${REPORT_CSS}${SWEEP_CSS}
   .field input::placeholder { color:var(--muted); }
   .field select { padding-right:4px; }
 
-  .task blockquote, blockquote.task { margin:0; padding:0 0 0 12px; border-left:2px solid var(--border-2); font-size:14px; line-height:1.45; }
+  .task blockquote, blockquote.task { margin:0; padding:0 0 0 12px; border-left:1px solid var(--border-2); font-size:14px; line-height:1.45; }
   .stage-pill { display:inline-flex; align-items:center; height:18px; padding:0 6px; border:1px solid var(--border); border-radius:4px; color:var(--fg-2); font-size:11px; white-space:nowrap; }
   .expect-rows { margin:0; padding:0; list-style:none; }
   .expect-rows li { display:flex; align-items:flex-start; gap:8px; padding:4px 0; font-size:13px; line-height:1.45; }
@@ -376,7 +376,7 @@ export const UI_CSS = `${BASE_CSS}${REPORT_CSS}${SWEEP_CSS}
   .agents-tbl .go { width:24px; color:var(--faint); }
 
   .cmp { margin:0 0 16px; overflow:hidden; border:1px solid var(--border); border-radius:6px; background:var(--surface); }
-  .cmp-head { display:flex; align-items:center; gap:12px; padding:12px 16px; border-left:2px solid transparent; }
+  .cmp-head { display:flex; align-items:center; gap:12px; padding:12px 16px; border-left:1px solid transparent; }
   .cmp.ok .cmp-head { border-left-color:var(--ssucc); } .cmp.bad .cmp-head { border-left-color:var(--harm); }
   .cmp-icon { display:grid; place-items:center; } .cmp.ok .cmp-icon { color:var(--ok-fg); } .cmp.bad .cmp-icon { color:var(--bad-fg); }
   .cmp-head h2 { margin:0; font-size:14px; }
@@ -416,8 +416,8 @@ export const UI_CSS = `${BASE_CSS}${REPORT_CSS}${SWEEP_CSS}
   .editor-side { display:flex; flex-direction:column; gap:16px; min-width:0; }
   .vstate { padding:12px 16px; border:1px solid var(--border); border-radius:6px; background:var(--surface); }
   .vstate.checking { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:13px; }
-  .vstate.ok { border-left:2px solid var(--ssucc); }
-  .vstate.bad { border-left:2px solid var(--harm); }
+  .vstate.ok { border-left:1px solid var(--ssucc); }
+  .vstate.bad { border-left:1px solid var(--harm); }
   .vstate-head { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
   .vstate.ok .vstate-head > .i { color:var(--ok-fg); } .vstate.bad .vstate-head > .i { color:var(--bad-fg); }
   .vstate-head strong { font-size:13px; }
@@ -442,7 +442,7 @@ export const UI_CSS = `${BASE_CSS}${REPORT_CSS}${SWEEP_CSS}
   .ref-group em { font-style:normal; letter-spacing:0; text-transform:none; }
 
   .tabs { display:flex; flex-wrap:wrap; gap:16px; margin:0 0 16px; border-bottom:1px solid var(--border); }
-  .tab { display:inline-flex; align-items:center; gap:6px; height:32px; padding:0; border:0; border-bottom:2px solid transparent; background:transparent; color:var(--fg-2); font-size:13px; font-weight:500; cursor:pointer; }
+  .tab { display:inline-flex; align-items:center; gap:6px; height:32px; padding:0; border:0; background:transparent; color:var(--fg-2); font-size:13px; font-weight:500; cursor:pointer; }
   .tab:hover { color:var(--fg); }
   .tab .i { color:var(--muted); }
   .tab span { color:var(--muted); font:400 11px/1 var(--font-mono); }
