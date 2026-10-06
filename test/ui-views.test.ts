@@ -277,7 +277,7 @@ describe("UI views", () => {
   });
 
   it("puts Coverage and Sweep in the sidebar and the shortcuts", () => {
-    const meta = { cwd: "/p/demo", version: "1.1.0" } as never;
+    const meta = { cwd: "/p/demo", version: "2.0.0" } as never;
     const nav = shell(meta, false);
     expect(nav).toContain('href="#/sweep" data-route="sweep"');
     expect(nav).toContain('href="#/coverage" data-route="coverage"');
@@ -302,7 +302,7 @@ describe("UI views", () => {
 
   it("renders the overview as KPI cells and tables, without a hero or tutorial tiles", () => {
     const meta = {
-      version: "1.1.0",
+      version: "2.0.0",
       cwd: "/p/demo",
       outDir: ".agentcrucible/out",
       scenarioRoots: [],

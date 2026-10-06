@@ -1,5 +1,3 @@
-import { createInterface } from "node:readline";
-import type { Readable, Writable } from "node:stream";
 import type { AgentAnswer, AgentContext } from "./harness.js";
 import type { Registry } from "./registry.js";
 import { runScenario } from "./runner.js";
@@ -16,8 +14,10 @@ export interface McpOptions {
   seed?: string;
   /** Name the report records for the client (default "mcp-client"). */
   agentId?: string;
-  input: Readable;
-  output: Writable;
+  /** The client's messages, one JSON-RPC message per line: process.stdin, or any stream of text or bytes. */
+  input: AsyncIterable<string | Uint8Array>;
+  /** Where responses go: process.stdout, or any writable. */
+  output: { write(chunk: string): unknown };
   /** Where to log (stderr by default); stdout carries only protocol messages. */
   log?: (line: string) => void;
 }
@@ -133,9 +133,8 @@ export async function serveMcp(opts: McpOptions): Promise<RunReport> {
     }
   };
 
-  const lines = createInterface({ input: opts.input, crlfDelay: Infinity });
   let queue = Promise.resolve();
-  lines.on("line", (line) => {
+  const dispatch = (line: string) => {
     if (!line.trim()) return;
     let req: Request;
     try {
@@ -149,9 +148,19 @@ export async function serveMcp(opts: McpOptions): Promise<RunReport> {
       return;
     }
     queue = queue.then(() => handle(req)).catch((err: unknown) => fail(req.id ?? null, -32603, err instanceof Error ? err.message : String(err)));
-  });
-  const closed = new Promise<void>((resolve) => lines.once("close", () => resolve()));
-  const report = await Promise.race([reportPromise, closed.then(async () => {
+  };
+  const decoder = new TextDecoder();
+  const closed = (async () => {
+    let buffered = "";
+    for await (const chunk of opts.input) {
+      buffered += typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true });
+      let index: number;
+      while ((index = buffered.indexOf("\n")) >= 0) {
+        dispatch(buffered.slice(0, index).replace(/\r$/, ""));
+        buffered = buffered.slice(index + 1);
+      }
+    }
+    dispatch(buffered);
     await queue;
     if (finish) {
       log(`agentcrucible mcp: the client disconnected before calling ${SUBMIT_TOOL}`);
@@ -159,8 +168,9 @@ export async function serveMcp(opts: McpOptions): Promise<RunReport> {
       finish = undefined;
     }
     return reportPromise;
-  })]);
+  })();
+  closed.catch(() => {});
+  const report = await Promise.race([reportPromise, closed]);
   await queue;
-  lines.close();
   return report;
 }

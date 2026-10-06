@@ -3,6 +3,7 @@
 A scenario is a YAML (`.yaml`, `.yml`) or JSON file. Bundled scenarios live in `scenarios/`. Add your own directories with `scenarioDirs` in the config file. Files in hidden directories (names starting with `.`) are skipped. [workflows.md](workflows.md) introduces the multi-step features with the bundled workflow scenarios.
 
 ```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/skysssup/agentcrucible/main/schema/scenario.schema.json
 id: payments/timeout-after-commit          # required
 version: 1                                 # optional; only 1 is accepted
 world: payments                            # required: one world, or worlds: [a, b] to combine several
@@ -29,7 +30,7 @@ expected_verdicts:                         # optional; used by check and demo
   idempotent-retry: SAFE_SUCCESS
 ```
 
-Any key not listed on this page is rejected, and the error names the file and the field.
+Any key not listed on this page is rejected, and the error names the file and the field. The comment on the first line points editors with a YAML language server (VS Code's YAML extension, JetBrains IDEs) at the JSON Schema, which completes keys, world names, fault kinds, and verdicts as you type; JSON scenario files can carry the same URL in a `$schema` key. `agentcrucible schema` prints the schema, with extension worlds and faults included when a config file loads them. The schema checks structure; the parser also checks what a schema cannot, such as record fields against each world and invariants against the initial state.
 
 ## id
 
@@ -239,9 +240,9 @@ Expectation fields are type-checked against the worlds' records:
 
 ## expected_verdicts
 
-Maps agents (built-in or from extensions) to the aggregate verdict they should get with the default seed (`seed-<id>`).
+Maps agents (built-in, from extensions, or model-backed as `provider:model`) to the aggregate verdict they should get with the default seed (`seed-<id>`).
 
-- `agentcrucible check` runs each listed agent for 5 trials. It fails when a verdict differs or when a fault never fired.
+- `agentcrucible check` runs each listed agent for 5 trials. It fails when a verdict differs or when a fault never fired. A model-backed agent runs with the config file's `record` directory, so after one recorded run the check is offline ([model-agents.md](model-agents.md)).
 - `agentcrucible demo --scenario <id>` runs the listed agents and explains each verdict.
 
 

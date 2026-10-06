@@ -7,7 +7,7 @@ npx agentcrucible ui
 ```
 
 ```text
-AgentCrucible 1.1.0 UI: http://127.0.0.1:7357/
+AgentCrucible 2.0.0 UI: http://127.0.0.1:7357/
   scenarios: bundled, scenarios (the editor saves to scenarios)
   reports:   .agentcrucible/out
   baseline:  agentcrucible-baseline.json

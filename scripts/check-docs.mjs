@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(root, "dist", "cli.js");
-const DOCS = ["README.md", "docs/examples.md", "docs/workflows.md", "docs/extending.md", "docs/traces.md", "docs/cli.md", "docs/ui.md"];
+const DOCS = ["README.md", "docs/examples.md", "docs/workflows.md", "docs/extending.md", "docs/traces.md", "docs/cli.md", "docs/ui.md", "docs/sweeps.md", "docs/mcp.md", "docs/ci.md", "docs/model-agents.md"];
 let failures = 0;
 let checked = 0;
 
@@ -64,9 +64,12 @@ for (const doc of DOCS) {
   });
 }
 
-/** A documented command to run; `ui` starts a server that runs until stopped, so it is not run. */
+/**
+ * A documented command to run. `ui` and `mcp` serve until stopped, and a command that names a
+ * model provider needs a key, so those are not run.
+ */
 function isCommand(line) {
-  return (/^(npx )?agentcrucible /.test(line) || line.startsWith("node dist/cli.js ")) && !/^(npx )?agentcrucible ui\b/.test(line);
+  return (/^(npx )?agentcrucible /.test(line) || line.startsWith("node dist/cli.js ")) && !/^(npx )?agentcrucible (ui|mcp)\b/.test(line) && !/\b(openai|anthropic|ollama):/.test(line);
 }
 
 const readmeYaml = readFileSync(join(root, "README.md"), "utf8").match(/```yaml\n([\s\S]*?)```/)[1];
