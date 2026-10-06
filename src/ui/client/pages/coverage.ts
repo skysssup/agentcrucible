@@ -11,6 +11,7 @@ import { icon } from "../icons.js";
 import type { Page } from "../routes.js";
 import { callout, emptyState, kpi, kpis, metaItem, pageHead, panel } from "../ui/layout.js";
 import { button, segmented, tip, toggle, worldChip, worldIcon } from "../ui/primitives.js";
+import { fixHref, suggestKind } from "../ui/scenario-kit.js";
 import { by, dataTable, registerTable, tableState } from "../ui/table.js";
 import { stageLabel, tallyOf, verdictBar } from "../ui/verdicts.js";
 
@@ -33,22 +34,10 @@ export interface GapGroup {
   fix: string;
 }
 
-/** The fault kind most worth trying on a tool: a lost response for a write, a timeout for a read. */
-export function suggestKind(c: Coverage, mutating: boolean): string {
-  const kinds = c.faultKinds.map((k) => k.kind);
-  const wanted = mutating ? "timeout_after_commit" : "timeout";
-  return kinds.includes(wanted) ? wanted : (kinds[0] ?? "");
-}
-
-/** The editor link that starts a scenario faulting `tool` of `world` with `kind`. */
-export function fixHref(world: string, tool: string, kind: string): string {
-  return withQuery("#/editor", { new: 1, world, tool, kind });
-}
-
 /** The gap groups with items; a coverage with none is fully covered. */
 export function gapGroups(c: Coverage): GapGroup[] {
   const mutating = (pair: string) => c.worlds.find((w) => w.name === pair.split("/")[0])?.tools.find((t) => t.name === pair.split("/")[1])?.mutating ?? false;
-  const toolLink = (pair: string, kind?: string) => fixHref(pair.split("/")[0], pair.split("/")[1], kind ?? suggestKind(c, mutating(pair)));
+  const toolLink = (pair: string, kind?: string) => fixHref(pair.split("/")[0], pair.split("/")[1], kind ?? suggestKind(kindsOf(c), mutating(pair)));
   const firstTool = c.gaps.tools[0] ?? (c.worlds[0]?.tools[0] ? `${c.worlds[0].name}/${c.worlds[0].tools[0].name}` : "");
   const groups: GapGroup[] = [
     { id: "worlds", title: "Worlds without a scenario", note: "No scenario runs in these services, so no agent is tested against them.", items: c.gaps.worlds, link: (w) => withQuery("#/editor", { new: 1, world: w }), fix: "Write a scenario" },
@@ -64,6 +53,8 @@ export function gapGroups(c: Coverage): GapGroup[] {
 }
 
 const SCENARIO_GAPS = new Set(["expect", "verdicts", "faults", "tags"]);
+
+const kindsOf = (c: Coverage) => c.faultKinds.map((k) => k.kind);
 
 function toolCount(c: Coverage): { tools: number; faulted: number } {
   const tools = c.worlds.reduce((n, w) => n + w.tools.length, 0);
@@ -139,7 +130,7 @@ function worldsPanel(c: Coverage): string {
         const missing = w.tools.filter((t) => !t.faultKinds.length);
         return `<li><div class="cov-world-head">${worldChip(w.name)}<span class="grow"></span>${w.scenarios.length ? `<a class="link-mono" href="${esc(scenariosHref(w.scenarios))}">${plural(w.scenarios.length, "scenario")}</a>` : '<span class="bad-text small">no scenario</span>'}</div>
         <div class="cov-bar" role="img" aria-label="${faulted.length} of ${w.tools.length} tools faulted">${w.tools.map((t) => `<i class="${t.faultKinds.length ? "on" : ""}"${tip(`${t.name}: ${t.faultKinds.length ? t.faultKinds.join(", ") : "never faulted"}`)}></i>`).join("")}</div>
-        <p class="cov-world-note"><b>${faulted.length}/${w.tools.length}</b> tools faulted${missing.length ? ` · never: ${missing.map((t) => `<a href="${esc(fixHref(w.name, t.name, suggestKind(c, t.mutating)))}"${tip(`Write a scenario that faults ${t.name}`)}>${esc(t.name)}</a>`).join(", ")}` : ""}</p></li>`;
+        <p class="cov-world-note"><b>${faulted.length}/${w.tools.length}</b> tools faulted${missing.length ? ` · never: ${missing.map((t) => `<a href="${esc(fixHref(w.name, t.name, suggestKind(kindsOf(c), t.mutating)))}"${tip(`Write a scenario that faults ${t.name}`)}>${esc(t.name)}</a>`).join(", ")}` : ""}</p></li>`;
       })
       .join("")}</ul>`
   );

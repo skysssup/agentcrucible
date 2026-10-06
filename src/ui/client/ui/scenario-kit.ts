@@ -230,3 +230,14 @@ export async function deleteScenarios(ids: string[]): Promise<string[]> {
   if (failed.length) toast(failed.join("\n"), "bad", { title: "Some scenarios were not deleted" });
   return gone;
 }
+
+/** The fault kind most worth trying on a tool: a lost response for a write, a timeout for a read. */
+export function suggestKind(kinds: string[], mutating: boolean): string {
+  const wanted = mutating ? "timeout_after_commit" : "timeout";
+  return kinds.includes(wanted) ? wanted : (kinds[0] ?? "");
+}
+
+/** The editor link that starts a scenario faulting `tool` of `world` with `kind`. */
+export function fixHref(world: string, tool: string, kind: string): string {
+  return withQuery("#/editor", { new: 1, world, tool, kind });
+}
