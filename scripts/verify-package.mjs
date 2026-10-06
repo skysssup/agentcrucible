@@ -32,9 +32,9 @@ try {
   check(`tarball ${tarball}`, existsSync(tarball));
 
   const listing = execFileSync("tar", ["-tzf", tarball], { encoding: "utf8" }).trim().split("\n").map((f) => f.replace(/^package\//, ""));
-  const unexpected = listing.filter((f) => !/^(dist\/.+\.(js|d\.ts)|scenarios\/.+\.yaml|README\.md|LICENSE|CHANGELOG\.md|package\.json)$/.test(f));
-  check("tarball holds only dist, scenarios, README, LICENSE, CHANGELOG, package.json", unexpected.length === 0, unexpected.join(", "));
-  for (const required of ["dist/cli.js", "dist/index.js", "dist/index.d.ts", "dist/ui/app.js", "README.md", "LICENSE", "CHANGELOG.md"]) {
+  const unexpected = listing.filter((f) => !/^(dist\/.+\.(js|d\.ts)|scenarios\/.+\.yaml|schema\/scenario\.schema\.json|README\.md|LICENSE|CHANGELOG\.md|package\.json)$/.test(f));
+  check("tarball holds only dist, scenarios, schema, README, LICENSE, CHANGELOG, package.json", unexpected.length === 0, unexpected.join(", "));
+  for (const required of ["dist/cli.js", "dist/index.js", "dist/index.d.ts", "dist/ui/app.js", "schema/scenario.schema.json", "README.md", "LICENSE", "CHANGELOG.md"]) {
     check(`tarball includes ${required}`, listing.includes(required));
   }
   const bundled = listing.filter((f) => f.startsWith("scenarios/")).length;

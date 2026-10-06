@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
-import { callState, describeBudget, describeExpect, describeFault, describeOutcome, worstTrial } from "./describe.js";
+import { callState, describeBudget, describeExpect, describeFault, describeOutcome, describeUsage, worstTrial } from "./describe.js";
 import { pct, truncate } from "./format.js";
 import { esc, renderReportHtml, renderRunIndex, type RunIndexEntry } from "./html.js";
 import { REPORT_VERSION, VERDICTS, type GradedTrial, type RunReport, type Verdict } from "./types.js";
@@ -62,6 +62,7 @@ export function formatReport(report: RunReport, color = false): string {
     for (const line of formatCallLines(worst, paint)) lines.push(`      ${line}`);
     lines.push(`    Final answer: ${JSON.stringify(worst.trace.finalAnswer)}`);
     if (worst.trace.finalOutput !== undefined) lines.push(`    Output: ${JSON.stringify(worst.trace.finalOutput)}`);
+    if (worst.trace.usage) lines.push(`    Model: ${describeUsage(worst.trace.usage)}`);
     lines.push(`    Outcome check: ${describeOutcome(worst)}`);
     lines.push("    Findings:");
     for (const line of formatFindingLines(worst, paint)) lines.push(`      ${line}`);
@@ -128,6 +129,7 @@ export function formatTrialDetail(report: RunReport, trialIndex: number, callId?
   lines.push(`Task: ${trial.trace.task}`, "", paint("bold", "Calls"));
   for (const line of formatCallLines(trial, paint)) lines.push(`  ${line}`);
   lines.push("", `${paint("bold", "Answer")} ${JSON.stringify(trial.trace.finalAnswer)}`);
+  if (trial.trace.usage) lines.push(`${paint("bold", "Model")}  ${describeUsage(trial.trace.usage)}`);
   if (trial.trace.finalOutput !== undefined) lines.push(`${paint("bold", "Output")} ${JSON.stringify(trial.trace.finalOutput)}`);
   lines.push("", `${paint("bold", "Outcome")} ${describeOutcome(trial)}`);
   for (const a of trial.outcome.assertions) lines.push(`  ${a.status.padEnd(12)} ${a.assertion}: ${a.detail}`);

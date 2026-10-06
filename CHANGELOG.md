@@ -1,25 +1,46 @@
 # Changelog
 
-## Unreleased
+## 2.0.0
 
-A redesign of `agentcrucible ui`, the HTML report, and the run index, with a new page and keyboard shortcuts in the UI. Grading, reports, baselines, and the CLI are unchanged.
+2.0 turns AgentCrucible from a harness for scripted agents into a tool that tests the agents people actually ship: a model named on the command line, with its responses recorded for offline replay; any MCP client; and any module as before. It adds fault sweeps and scenario coverage, a published JSON Schema, GitHub Actions output and a reusable action, shell completions, and a redesign of the UI, the HTML report, and the run index. No verdict changed: every bundled scenario gives the same verdicts for the agents that existed in 1.1, and reports, baselines, scenario files, agent modules, and extensions written for 1.x load unchanged. The major version marks the new surface and the new look, not a migration; [docs/stability.md](docs/stability.md) says what 2.x keeps compatible.
 
-### UI
+### Model-backed agents
 
-- **New look.** A new mark, an agent's spark over a crucible of molten metal; the Geist and Geist Mono typefaces, served by the UI server so the page still loads nothing from the network; warm neutrals with an ember accent; and the light and dark themes from one set of colors. Pages sit on a sheet beside the sidebar, under a bar that shows where you are and starts a new run.
-- **Agents page:** each agent's results from this session's runs and the saved reports, by verdict, with the share that ended safe and the most severe verdict. A saved report and the session run it came from count once. Click an agent for its reports.
-- **Overview:** the verdict mix as a ring with the share of safe results, the agents whose results ended safe most often, the number of fault kinds, and where the project's scenarios, reports, and baseline live.
-- **Runs:** Re-run repeats a run with the same scenarios, agents, trials, and seed. The matrix copies as a Markdown table, downloads as CSV, copies as the `agentcrucible run` commands that repeat it, and has a compact layout.
-- **Keyboard:** `?` lists the shortcuts. `G` then a letter goes to a page, `N` starts a run, `T` switches between light and dark, `J` and `K` move between a report's calls and `E` opens them all, and ⌘S and ⌘Enter save and run in the editor. The palette also re-runs the latest run and opens an agent's reports.
-- The scenario page lists the scenario's results and copies the command that runs it; the Scenarios page selects or clears every scenario shown; a click on a fault kind beside the editor copies its name.
+- **`--agent openai:<model>`, `anthropic:<model>`, `ollama:<model>`** run a model's tool-calling loop against the trial's tools over the OpenAI chat completions or Anthropic Messages API, with the endpoint from `OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL`, or `OLLAMA_BASE_URL` and the key from `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`. Any OpenAI-compatible service works through `openai:`. `--agents` mixes models and scripted agents in one matrix.
+- **`--record <dir>`** (config `record`) stores every provider response by request hash and answers later identical requests from the file, so a recorded scenario replays offline without a key, in CI too. A missing recording without a key is a clear error naming the cassette.
+- **`--system <file>`** (config `systemPrompt`) and **`--max-steps <n>`** (config `maxSteps`, default 12) set the prompt and the tool-calling rounds. The built-in prompt says nothing about retries or keys; how the model handles a failed call is what the run measures.
+- **Usage in reports.** A trial run by a model records `usage` (requests, input and output tokens, provider latency, replayed requests); text reports and `inspect` print a `Model:` line.
+- **`expected_verdicts` may name a model**, which `check` runs like any other agent, so a model's behaviour on a scenario is a regression test.
 
-### HTML report and run index
+### Fault sweeps and coverage
 
-The same colors and type as the UI, with a brand bar, a verdict panel, and a timeline whose nodes mark committed, failed, and faulted calls; Expand calls opens every call of the shown trial. Colors follow the system's light or dark setting through CSS `light-dark()`, which browsers support since 2024. The run index orders verdicts by severity and names how many scenarios and agents it covers.
+- **`agentcrucible sweep --scenario <id> --agent <agent>`** runs the agent once without faults to learn its path, then injects every fault kind at every call of that path, one fault per run, and prints a kind-by-step table with a resilience score (the share of runs that ended `SAFE_SUCCESS` or `SAFE_FAILURE`) and the critical runs with their reasons. `--kinds`, `--steps`, `--trials`, `--seed`, `--concurrency`, `--fail-on`, `--json`, and `--out` (`sweep.json`, `sweep.md`, `sweep.html`, and a report per cell under `cells/`) are supported. A cell whose fault the agent never reached is marked and does not count as safe.
+- **`agentcrucible coverage`** maps the scenario set onto worlds, tools, fault kinds, and agents, and lists the gaps: what no scenario covers, and scenarios without expectations, expected verdicts, faults, or tags. Running it on the bundled set found that no scenario injected `retry_storm`; **`payments/service-down`** now does (every `create_refund` fails before it runs; the only safe answer reports the failure).
+- The library exports `runSweep`, `summarizeSweep`, `scoreCells`, `formatSweep`, `sweepMarkdown`, `computeCoverage`, and `formatCoverage`.
 
-### Compatibility
+### MCP server mode
 
-Everything in [docs/stability.md](docs/stability.md) holds. The UI's HTTP API adds `demo` to `GET /api/meta` and serves `/fonts/`.
+- **`agentcrucible mcp --scenario <id>`** serves one trial to any MCP client over stdio (newline-delimited JSON-RPC): the world's tools with the scenario's faults applied, the task as `instructions` and as a prompt, and `submit_answer`, which ends the trial, grades the answer, and returns the verdict and findings to the client. A disconnect without an answer is graded as such. `--out` writes the report like `run`'s, `--seed` and `--agent-id` name the run, and the exit status follows `--fail-on`.
+
+### Scenario schema, completions, CI
+
+- **`agentcrucible schema`** prints a JSON Schema (draft 2020-12) for scenario files with the registry's worlds, fault kinds, record kinds, tools, and agents as enums; `--config` includes extension worlds and faults. The built-in schema ships as `schema/scenario.schema.json` and is published at `https://raw.githubusercontent.com/skysssup/agentcrucible/main/schema/scenario.schema.json`; `init`'s starter scenario points editors at it, and scenario files may carry a `$schema` key.
+- **`agentcrucible completion bash|zsh|fish`** prints a completion script generated from the command table. **`list --ids`**, **`list --tags`**, **`agents --ids`**, and **`faults --ids`** print one name per line for the scripts and for shell pipelines.
+- **GitHub Actions output.** Under `GITHUB_ACTIONS`, or with `--github`, `run`, `check`, and `sweep` print workflow annotations (attached to the scenario file when it is in the workspace; regressions as errors and improvements as notices against a baseline) and append their Markdown summary to the job summary.
+- **A reusable action.** `uses: skysssup/agentcrucible@v2` runs `run`, `check`, or `sweep` with inputs for the scenario, tag, agents, trials, baseline, threshold, cassette directory, and report directory, and outputs the exit code and report directory.
+- **Release workflow.** A `v*` tag builds, verifies, attaches the tarball to a GitHub release with the changelog section as its notes, and publishes to npm when a token is configured. CI also exercises the action and checks that the committed schema is current.
+
+### UI, HTML report, run index
+
+A redesign to a flat, dense design system: neutral surfaces, one accent used for actions and focus, verdict colors that carry meaning and nothing else, Geist and Geist Mono served by the UI server, 11 to 20px type with tabular numerals, no gradients, glows, or animations beyond a spinner. The overview is an operational dashboard (KPI strip, results that need attention, verdict distribution, coverage, recent runs, agent scores) instead of a landing page. New **Sweep** (heat map with a report behind every cell, exports as Markdown, CSV, and the CLI command) and **Coverage** (fault kind by tool, gaps, agents) pages, with `G W` and `G V` shortcuts and palette entries. Scenarios, runs, reports, agents, and the catalog are tables; the run matrix has a compact and a detailed layout. The standalone HTML report and run index share the tokens, and `renderSweepHtml` renders a standalone sweep page. The UI's API adds `POST /api/sweep`, `GET /api/sweeps`, `GET /api/sweep`, `GET /api/sweep/markdown`, and `GET /api/coverage`; `GET /api/meta` lists each fault kind's required params.
+
+### Repository
+
+`CONTRIBUTING.md`, `SECURITY.md`, issue and pull request templates, Dependabot, and an `.editorconfig`.
+
+### Library
+
+New exports: `createModelAgent`, `registerModelAgent`, `parseModelAgentId`, `parseMaxSteps`, `requestKey`, `cassettePath`, `MODEL_PROVIDERS`, `DEFAULT_SYSTEM_PROMPT`, `DEFAULT_MAX_STEPS`, `MAX_MODEL_STEPS`, `describeUsage`, `serveMcp`, `MCP_PROTOCOL_VERSION`, `SUBMIT_TOOL`, `scenarioJsonSchema`, `SCENARIO_SCHEMA_URL`, `githubAnnotations`, `githubStepSummary`, `completionScript`, `COMPLETION_SHELLS`, and the sweep and coverage functions above, with their types. `AgentAnswer` and `TrialTrace` gain the optional `usage`; `CrucibleConfig` gains `record`, `systemPrompt`, and `maxSteps`.
 
 ## 1.1.0
 

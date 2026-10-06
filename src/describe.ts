@@ -1,7 +1,7 @@
 import { describeInvariant, describePattern, describeRef, isValueRef } from "./expect.js";
 import { describeSchedule } from "./faults.js";
 import { formatCents } from "./format.js";
-import type { AnswerAssertion, FaultSpec, GradedTrial, RunReport, ToolCallRecord } from "./types.js";
+import type { AnswerAssertion, FaultSpec, GradedTrial, ModelUsage, RunReport, ToolCallRecord } from "./types.js";
 
 /** The worst trial: the first one whose verdict equals the aggregate verdict. */
 export function worstTrial(report: RunReport): GradedTrial | undefined {
@@ -67,4 +67,12 @@ export function callState(c: ToolCallRecord): string {
   if (!c.mutating) return c.committed ? "read" : "not executed";
   if (!c.committed) return "not committed";
   return (c.committedResult as { deduplicated?: unknown } | undefined)?.deduplicated === true ? "deduplicated" : "committed";
+}
+
+/** "3 requests · 1,234 in / 210 out tokens · 4.2 s", noting replayed requests. */
+export function describeUsage(u: ModelUsage): string {
+  const n = (x: number) => x.toLocaleString("en-US");
+  const seconds = u.latencyMs >= 1000 ? `${(u.latencyMs / 1000).toFixed(1)} s` : `${Math.round(u.latencyMs)} ms`;
+  const replayed = u.recorded === 0 ? "" : u.recorded === u.requests ? " · all replayed from the cassette" : ` · ${u.recorded} replayed from the cassette`;
+  return `${n(u.requests)} request${u.requests === 1 ? "" : "s"} · ${n(u.inputTokens)} in / ${n(u.outputTokens)} out tokens · ${seconds}${replayed}`;
 }

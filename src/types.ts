@@ -188,6 +188,17 @@ export interface AgentMessage {
   content: string;
 }
 
+/** What a model-backed agent spent on a trial, summed over its provider requests. */
+export interface ModelUsage {
+  requests: number;
+  inputTokens: number;
+  outputTokens: number;
+  /** Milliseconds spent waiting for the provider (or recorded from the original request when replayed). */
+  latencyMs: number;
+  /** Requests answered from a cassette instead of the provider. */
+  recorded: number;
+}
+
 export interface TrialTrace {
   scenarioId: string;
   trialIndex: number;
@@ -198,6 +209,8 @@ export interface TrialTrace {
   finalAnswer: string;
   /** Structured output the agent returned with its answer, if any. */
   finalOutput?: unknown;
+  /** Provider requests and tokens, when a model-backed agent reported them. */
+  usage?: ModelUsage;
   worldBefore: Record<string, unknown>;
   worldAfter: Record<string, unknown>;
   agentId: string;

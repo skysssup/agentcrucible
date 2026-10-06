@@ -1,0 +1,104 @@
+name: AgentCrucible
+description: Fault-injection tests for tool-using agents. Runs scenarios against your agent, writes reports, annotates failures, and compares with a baseline.
+author: Aakash Dahal
+branding:
+  icon: shield
+  color: gray-dark
+
+inputs:
+  command:
+    description: "Subcommand to run: run, check, or sweep."
+    default: run
+  scenario:
+    description: "Scenario id (exact or partial) for run and sweep."
+    default: ""
+  tag:
+    description: "Run every scenario with this tag (run, check)."
+    default: ""
+  agent:
+    description: "Agent for run and sweep: a registered id, a module path such as ./agents/my-agent.mjs, or provider:model such as openai:gpt-4o-mini."
+    default: ""
+  agents:
+    description: "Comma-separated agents for run; every scenario runs against each."
+    default: ""
+  trials:
+    description: "Trials per scenario."
+    default: ""
+  baseline:
+    description: "Baseline file for run; the step fails only for regressions and new failing scenarios."
+    default: ""
+  fail-on:
+    description: "Verdict that fails the step (HARMFUL_ACTION, SILENT_FAILURE, DEGRADED, ...)."
+    default: ""
+  record:
+    description: "Directory of recorded provider responses for provider:model agents, so the run needs no key once recorded."
+    default: ""
+  out:
+    description: "Report directory."
+    default: agentcrucible-reports
+  args:
+    description: "Extra arguments appended to the command."
+    default: ""
+  working-directory:
+    description: "Directory with the project's config file and scenarios."
+    default: .
+  node-version:
+    description: "Node.js version to run with."
+    default: "22"
+
+outputs:
+  exit-code:
+    description: "0 when nothing failed, 2 when a verdict reached fail-on or a baseline regressed, 1 for a usage or agent error."
+    value: ${{ steps.agentcrucible.outputs.exit-code }}
+  reports:
+    description: "The report directory, for upload-artifact."
+    value: ${{ steps.agentcrucible.outputs.reports }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+    - name: Build AgentCrucible
+      shell: bash
+      run: |
+        cd "$GITHUB_ACTION_PATH"
+        npm ci --no-audit --no-fund --loglevel=error
+        npm run build --silent
+    - name: Run AgentCrucible
+      id: agentcrucible
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        INPUT_COMMAND: ${{ inputs.command }}
+        INPUT_SCENARIO: ${{ inputs.scenario }}
+        INPUT_TAG: ${{ inputs.tag }}
+        INPUT_AGENT: ${{ inputs.agent }}
+        INPUT_AGENTS: ${{ inputs.agents }}
+        INPUT_TRIALS: ${{ inputs.trials }}
+        INPUT_BASELINE: ${{ inputs.baseline }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_RECORD: ${{ inputs.record }}
+        INPUT_OUT: ${{ inputs.out }}
+        INPUT_ARGS: ${{ inputs.args }}
+      run: |
+        set +e
+        args=("$INPUT_COMMAND")
+        [[ -n "$INPUT_SCENARIO" ]] && args+=(--scenario "$INPUT_SCENARIO")
+        [[ -n "$INPUT_TAG" ]] && args+=(--tag "$INPUT_TAG")
+        [[ -n "$INPUT_AGENT" ]] && args+=(--agent "$INPUT_AGENT")
+        [[ -n "$INPUT_AGENTS" ]] && args+=(--agents "$INPUT_AGENTS")
+        [[ -n "$INPUT_TRIALS" ]] && args+=(--trials "$INPUT_TRIALS")
+        [[ -n "$INPUT_BASELINE" ]] && args+=(--baseline "$INPUT_BASELINE")
+        [[ -n "$INPUT_FAIL_ON" ]] && args+=(--fail-on "$INPUT_FAIL_ON")
+        [[ -n "$INPUT_RECORD" ]] && args+=(--record "$INPUT_RECORD")
+        [[ "$INPUT_COMMAND" != "check" && -n "$INPUT_OUT" ]] && args+=(--out "$INPUT_OUT")
+        # shellcheck disable=SC2206
+        [[ -n "$INPUT_ARGS" ]] && args+=($INPUT_ARGS)
+        echo "agentcrucible ${args[*]}"
+        node "$GITHUB_ACTION_PATH/dist/cli.js" "${args[@]}"
+        code=$?
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        echo "reports=$INPUT_OUT" >> "$GITHUB_OUTPUT"
+        exit $code

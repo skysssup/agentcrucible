@@ -2,7 +2,7 @@
 
 Every `run` writes a JSON report per scenario. The report is the complete record of the run: the scenario as it was graded, the fault schedule, and for each trial every tool call (arguments, what the agent saw, what the world returned, the fault, the state it changed), the committed changes, the answer, the answer checks, and the findings with their evidence. Four tools work from it: `inspect`, `replay`, the HTML timeline, and baselines. Beside the reports, `run` writes an `index.html` and a `summary.md` for the whole run.
 
-Reports carry `reportVersion: 2`. Reports written by AgentCrucible 0.4 and earlier lack the per-call state changes and the effective fault schedule, so `inspect` and `replay` refuse them with a message to run the scenario again.
+Reports carry `reportVersion: 2`. Reports written by AgentCrucible 0.4 and earlier lack the per-call state changes and the effective fault schedule, so `inspect` and `replay` refuse them with a message to run the scenario again. A trial run by a model-backed agent also records `usage` (requests, tokens, latency, replayed requests), which `inspect` prints as a `Model` line. `sweep --out` writes one such report per cell under `cells/`, and `mcp --out` writes one for the client's trial; both read like any other.
 
 ## inspect
 
@@ -12,7 +12,7 @@ agentcrucible inspect reports/workflows%2Frefund-notify-resolve.report.json
 ```
 
 ```text
-workflows/refund-notify-resolve  agent workflow-reconcile · seed seed-workflows/refund-notify-resolve · trial 0 of 2 · AgentCrucible 1.1.0
+workflows/refund-notify-resolve  agent workflow-reconcile · seed seed-workflows/refund-notify-resolve · trial 0 of 2 · AgentCrucible 2.0.0
   call_1 create_refund#1  committed  agent saw: error ETIMEDOUT: connection timed out after commit  [fault: timeout_after_commit]
     state: + refund re_1_4471 order_id="4471" amount_cents=8400 status="succeeded" (no idempotency key)
   call_4 void_refund#1  committed  agent saw: ok {"refund_id":"re_2_4471","status":"voided","deduplicated":false}
@@ -50,7 +50,7 @@ agentcrucible replay reports/workflows%2Frefund-notify-resolve.report.json
 ```
 
 ```text
-replay workflows/refund-notify-resolve (agent workflow-reconcile, seed seed-workflows/refund-notify-resolve, 2 trial(s), recorded by AgentCrucible 1.1.0)
+replay workflows/refund-notify-resolve (agent workflow-reconcile, seed seed-workflows/refund-notify-resolve, 2 trial(s), recorded by AgentCrucible 2.0.0)
   trial 0: 6 call(s) replayed identically; verdict DEGRADED as recorded
   trial 1: 6 call(s) replayed identically; verdict DEGRADED as recorded
 Reproduced: every call, state, and verdict matches the report.

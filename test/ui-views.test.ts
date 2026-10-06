@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
+import type { Coverage } from "../src/coverage.js";
 import { esc, highlightJson } from "../src/html.js";
+import type { SweepSummary } from "../src/sweep.js";
 import { parseScenario } from "../src/scenarios.js";
+import type { SweepResponse } from "../src/ui/server.js";
 import { errorLine, highlightYaml } from "../src/ui/client/editor.js";
 import {
   agentStats,
@@ -10,9 +13,12 @@ import {
   catalogView,
   clip,
   comparisonPanel,
+  coverageView,
   filterReports,
   filterScenarios,
   href,
+  needsAttention,
+  overviewView,
   replayPanel,
   reportList,
   runCommands,
@@ -20,6 +26,12 @@ import {
   runMarkdown,
   runView,
   scenarioList,
+  scenariosHref,
+  shell,
+  shortcutsView,
+  sweepCommand,
+  sweepCsv,
+  sweepView,
   TEMPLATES,
   uniqueResults,
   validationPanel,
@@ -255,5 +267,159 @@ describe("UI views", () => {
     expect(html).toMatch(/replica_lag[\s\S]*?after the call runs/);
     expect(html).toMatch(/duplicate_delivery[\s\S]*?the call runs twice/);
     expect(html).toMatch(/phantom_success[\s\S]*?<code class="code-chip">result<\/code>/);
+  });
+
+  it("lists only the scenarios a Coverage link names", () => {
+    const all = [scenario({ id: "payments/a" }), scenario({ id: "payments/b" }), scenario({ id: "email/c" })];
+    expect(filterScenarios(all, { q: "", tag: "", world: "", ids: ["payments/b", "email/c"] }).map((s) => s.id)).toEqual(["payments/b", "email/c"]);
+    expect(filterScenarios(all, { q: "", tag: "", world: "", ids: [] })).toHaveLength(3);
+    expect(scenariosHref(["payments/a", "email/c"])).toBe("#/scenarios?ids=payments/a,email/c");
+  });
+
+  it("puts Coverage and Sweep in the sidebar and the shortcuts", () => {
+    const meta = { cwd: "/p/demo", version: "2.0.0" } as never;
+    const nav = shell(meta, false);
+    expect(nav).toContain('href="#/sweep" data-route="sweep"');
+    expect(nav).toContain('href="#/coverage" data-route="coverage"');
+    expect(nav).toContain("Local, offline");
+    expect(nav).not.toContain("live-dot");
+    const keys = shortcutsView(false);
+    expect(keys).toMatch(/<dt>Sweep<\/dt><dd><kbd>G<\/kbd><kbd>W<\/kbd>/);
+    expect(keys).toMatch(/<dt>Coverage<\/dt><dd><kbd>G<\/kbd><kbd>V<\/kbd>/);
+  });
+
+  it("lists results that differ from the expected verdict or that are HARMFUL_ACTION or SILENT_FAILURE, differences first", () => {
+    const scenarios = [scenario({ expectedVerdicts: { "naive-retry": "HARMFUL_ACTION", "cross-checker": "SAFE_SUCCESS" } })];
+    const rows = [
+      report({ key: "a" }),
+      report({ key: "b", agentId: "cross-checker", verdict: "SAFE_SUCCESS" }),
+      report({ key: "c", agentId: "cross-checker", verdict: "DEGRADED" }),
+      report({ key: "d", agentId: "liar", verdict: "SILENT_FAILURE" }),
+      report({ key: "e", agentId: "honest-stop", verdict: "DEGRADED" }),
+    ];
+    expect(needsAttention(rows, scenarios).map((r) => r.key)).toEqual(["c", "a", "d"]);
+  });
+
+  it("renders the overview as KPI cells and tables, without a hero or tutorial tiles", () => {
+    const meta = {
+      version: "2.0.0",
+      cwd: "/p/demo",
+      outDir: ".agentcrucible/out",
+      scenarioRoots: [],
+      scenarioDir: null,
+      baselinePath: "b.json",
+      failOn: "SILENT_FAILURE" as const,
+      verdicts: [],
+      demo: { scenario: "payments/x", seed: "demo" },
+      agents: [{ id: "naive-retry", description: "d", source: "built-in" }],
+      worlds: [{ name: "payments" }],
+      faults: [{ kind: "timeout" }],
+    };
+    const coverage = { faultKinds: [{ kind: "timeout" }], worlds: [{ tools: [{ faultKinds: ["timeout"] }, { faultKinds: [] }] }], gaps: { faultKinds: [], tools: ["payments/get_refund"], worlds: [], agents: [], withoutExpect: [], withoutExpectedVerdicts: [], withoutFaults: [], withoutTags: [] } };
+    const html = overviewView(meta as never, [scenario({})], [report({ key: "file:a", file: "a", finishedAt: "2026-10-04T10:00:00.000Z" })], { runs: [], coverage: coverage as never, baseline: { entries: 4 } });
+    for (const label of ["Scenarios", "Agents", "Worlds", "Fault kinds", "Saved reports", "Baseline"]) expect(html).toContain(`<span class="kpi-label">${label}</span>`);
+    expect(html).toContain("present, 4 entries");
+    for (const title of ["Needs attention", "Recent runs", "Verdict distribution", "Agents", "Coverage"]) expect(html).toContain(`<h2>${title}</h2>`);
+    expect(html).toContain("1 / 2");
+    expect(html).not.toMatch(/Break the tools|hero|ember|conic-gradient|Hold the line/);
+    expect(overviewView(meta as never, [], [])).toContain("absent");
+  });
+
+  const sweep = (): SweepResponse => ({
+    sweepId: "sweep-3",
+    scenarioId: "payments/<x>",
+    agentId: "cross-checker",
+    seed: "sweep-payments/<x>",
+    trials: 1,
+    baseline: { verdict: "SAFE_SUCCESS", rule: "", reason: "ok", calls: 2 },
+    steps: [
+      { step: 1, tool: "create_refund", callIndex: 1, mutating: true },
+      { step: 2, tool: "list_refunds", callIndex: 1, mutating: false },
+    ],
+    kinds: [
+      { kind: "timeout", stage: "before", description: "d" },
+      { kind: "phantom_success", stage: "before", description: "d" },
+    ],
+    cells: [
+      { kind: "timeout", step: 1, verdict: "SAFE_FAILURE", rule: "grader.safe_failure", reason: "reported it", fired: true, calls: 1, key: "mem-1" },
+      { kind: "timeout", step: 2, verdict: "SAFE_SUCCESS", rule: "", reason: "fine", fired: false, calls: 2, key: "mem-2" },
+      { kind: "phantom_success", step: 1, verdict: "SILENT_FAILURE", rule: "expect.false_success_claim", reason: 'claimed "done"', fired: true, calls: 1, key: "mem-3" },
+      { kind: "phantom_success", step: 2, verdict: "SAFE_SUCCESS", rule: "", reason: "fine", fired: true, calls: 2, key: "mem-4" },
+    ],
+    score: { runs: 4, safe: 3, critical: 1, notFired: 1, resilience: 0.75, byVerdict: { HARMFUL_ACTION: 0, SILENT_FAILURE: 1, DEGRADED: 0, INCONCLUSIVE: 0, SAFE_FAILURE: 1, SAFE_SUCCESS: 2 } },
+    startedAt: "2026-10-05T10:00:00.000Z",
+    finishedAt: "2026-10-05T10:00:01.000Z",
+    durationMs: 1000,
+    baselineKey: "mem-0",
+  });
+
+  it("draws the sweep as a form, score cells, and a heat map whose cells open the cell's report", () => {
+    const meta = {
+      agents: [{ id: "cross-checker", description: "d", source: "built-in" }],
+      faults: [
+        { kind: "timeout", stage: "before", description: "d", params: [], required: [], source: "built-in" },
+        { kind: "needs_params", stage: "after", description: "d", params: ["x"], required: ["x"], source: "built-in" },
+      ],
+    };
+    const form = { scenario: "", agent: "cross-checker", steps: "12", trials: "1", seed: "" };
+    const html = sweepView(meta as never, [scenario({ id: "payments/x" })], form, [], sweep());
+    expect(html).toContain('<option value="payments/x">');
+    expect(html).toContain('name="kind" value="timeout" checked');
+    expect(html).toContain('name="kind" value="needs_params" disabled');
+    expect(html).toContain('name="steps" min="1" max="64" value="12"');
+    for (const label of ["Runs", "Ended safe", "Critical", "Resilience"]) expect(html).toContain(`<span class="kpi-label">${label}</span>`);
+    expect(html).toContain("75.0%");
+    expect(html).toContain("create_refund");
+    expect(html).toContain('<i class="hm-w" title="changes state">writes</i>');
+    expect(html).toContain('href="#/report/mem-3"');
+    expect(html).toMatch(/class="hm-cell SILENT_FAILURE"[^>]*>SL<\/a>/);
+    expect(html).toMatch(/class="hm-cell SAFE_SUCCESS hm-off"[^>]*>\(SS\)<\/a>/);
+    expect(html).toContain("not reached");
+    expect(html).toContain("claimed &quot;done&quot;");
+    expect(html).toContain('title="worst: SILENT_FAILURE"');
+    expect(html).toContain(`data-action="copy-sweep-markdown" title="Copy the heat map as a Markdown table" data-sweep="sweep-3"`);
+    expect(html).not.toContain("payments/<x>");
+    expect(sweepView(meta as never, [], form, [], undefined, "boom <b>")).toContain("boom &lt;b&gt;");
+    expect(sweepView(meta as never, [], form, [], undefined)).toContain("No sweeps yet.");
+  });
+
+  it("exports a sweep as CSV and as the CLI command that repeats it", () => {
+    const s = sweep() as SweepSummary;
+    const rows = sweepCsv(s).split("\n");
+    expect(rows[0]).toBe("fault_kind,stage,step,tool,call_index,mutating,verdict,rule,fired,calls,reason");
+    expect(rows[1]).toBe("timeout,before,1,create_refund,1,true,SAFE_FAILURE,grader.safe_failure,true,1,reported it");
+    expect(rows[3]).toBe('phantom_success,before,1,create_refund,1,true,SILENT_FAILURE,expect.false_success_claim,true,1,"claimed ""done"""');
+    expect(sweepCommand(s)).toBe("agentcrucible sweep --scenario 'payments/<x>' --agent cross-checker --kinds timeout,phantom_success --steps 2");
+    expect(sweepCommand({ ...s, scenarioId: "payments/x", seed: "s 1", trials: 3 })).toBe("agentcrucible sweep --scenario payments/x --agent cross-checker --kinds timeout,phantom_success --steps 2 --trials 3 --seed 's 1'");
+  });
+
+  it("draws coverage as KPI cells, a fault-kind-by-tool matrix that filters scenarios, gaps with links, and agents", () => {
+    const c: Coverage = {
+      scenarios: ["payments/a", "email/<b>"],
+      worlds: [
+        { name: "payments", description: "d", scenarios: ["payments/a"], tools: [{ name: "create_refund", mutating: true, faultKinds: ["timeout"], scenarios: ["payments/a"] }, { name: "get_refund", mutating: false, faultKinds: [], scenarios: [] }] },
+        { name: "email", description: "d", scenarios: [], tools: [{ name: "send_email", mutating: true, faultKinds: [], scenarios: [] }] },
+      ],
+      faultKinds: [
+        { kind: "timeout", stage: "before", description: "d", scenarios: ["payments/a"], targets: ["payments/create_refund"] },
+        { kind: "omission", stage: "before", description: "d", scenarios: [], targets: [] },
+      ],
+      agents: [
+        { id: "naive-retry", scenarios: ["payments/a"], expected: { HARMFUL_ACTION: 1 } },
+        { id: "liar", scenarios: [], expected: {} },
+      ],
+      matrix: [{ kind: "timeout", world: "payments", tool: "create_refund", scenarios: ["payments/a"] }],
+      gaps: { faultKinds: ["omission"], tools: ["payments/get_refund", "email/send_email"], worlds: ["email"], agents: ["liar"], withoutExpect: [], withoutExpectedVerdicts: [], withoutFaults: ["email/<b>"], withoutTags: [] },
+    };
+    const html = coverageView(c);
+    for (const label of ["Scenarios", "Worlds covered", "Tools faulted", "Fault kinds used", "Agents held", "Gaps"]) expect(html).toContain(`<span class="kpi-label">${label}</span>`);
+    expect(html).toContain('<span class="kpi-num">1/2</span>');
+    expect(html).toContain('<span class="kpi-num">5</span>');
+    expect(html).toContain('href="#/scenarios?ids=payments/a"');
+    expect(html).toContain('<tr class="unused">');
+    expect(html).toContain('colspan="2"');
+    expect(html).toContain('<a href="#/scenario/email/%3Cb%3E">email/&lt;b&gt;</a>');
+    expect(html).toContain('<a href="#/agents">liar</a>');
+    expect(html).not.toContain("email/<b>");
   });
 });

@@ -2,6 +2,8 @@
 
 Three things can be added without changing AgentCrucible: agents, worlds, and fault kinds. An agent can be given to the CLI as a module path. Worlds, fault kinds, and named agents come from extension modules listed in the config file. Everything stays offline; an extension is ordinary JavaScript that runs with your permissions, so load only code you trust.
 
+To test a model without writing a module, name it as `--agent openai:<model>`, `anthropic:<model>`, or `ollama:<model>`; [model-agents.md](model-agents.md) covers that, including recorded replays. A module is for an agent with its own loop, prompt handling, or framework, and for anything that is not a single model call per step.
+
 [examples/inventory](../examples/inventory) is a complete extension: a world, a fault kind, two agents, a scenario, and the config file that loads them.
 
 ## Agent modules
@@ -43,7 +45,7 @@ The agent is registered under its file name, lowercased, with other characters r
 | `ctx.scenarioId`, `ctx.trialIndex` | Which scenario and trial this is, for the agent's own logs |
 | `ctx.signal` | An `AbortSignal` that aborts when the trial's time limit (`--timeout`, config `timeoutMs`) runs out. Pass it to the model client's requests so a hung call stops with the trial. |
 
-The final answer is a string, or `{ text, output }` when the task asks for structured output; `output` must be JSON-serializable. A model-backed agent is usually slow, so run it with `--timeout` (a trial that exceeds it fails the run with an error rather than hanging it) and `--concurrency` (several scenario-and-agent runs at once; the reports are the same as from a sequential run).
+The final answer is a string, or `{ text, output, usage }`: `output` when the task asks for structured output (it must be JSON-serializable), and `usage` when the agent wants its provider costs in the report: `{ requests, inputTokens, outputTokens, latencyMs, recorded }`, all non-negative numbers, which the trace records as `usage` and text reports print as a `Model:` line. A model-backed agent is usually slow, so run it with `--timeout` (a trial that exceeds it fails the run with an error rather than hanging it) and `--concurrency` (several scenario-and-agent runs at once; the reports are the same as from a sequential run).
 
 Error codes the agent can see:
 

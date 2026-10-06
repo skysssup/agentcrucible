@@ -2,23 +2,30 @@
 
 ```text
 agentcrucible init
-agentcrucible demo     [--scenario <id>] [--out <dir>]
-agentcrucible list     [--tag <tag>] [--json]
-agentcrucible validate [<file or directory>] [--json]
-agentcrucible run      [--scenario <id> | --tag <tag>] [--agent <id|path> | --agents a,b,./agent.mjs] [--trials <n>] [--seed <text>]
-                       [--fuzz-call <a-b>] [--timeout <ms>] [--concurrency <n>] [--out <dir>] [--json] [--fail-on <verdict>]
-                       [--save-baseline <file>] [--baseline <file>]
-agentcrucible compare  --scenario <id> [--agents a,b,./agent.mjs] [--trials <n>] [--seed <text>] [--timeout <ms>] [--concurrency <n>]
-                       [--json] [--fail-on <verdict>]
-agentcrucible check    [--scenario <id> | --tag <tag>] [--trials <n>] [--timeout <ms>] [--concurrency <n>] [--json]
-agentcrucible inspect  <report.json> [--trial <n>] [--call <id>] [--scenario <id>]
-agentcrucible replay   <report.json> [--scenario <id>] [--json]
-agentcrucible ui       [--port <n>] [--host <addr>] [--out <dir>] [--baseline <file>] [--agents a,b] [--fail-on <verdict>]
-agentcrucible agents | worlds | faults  [--json]
+agentcrucible demo       [--scenario <id>] [--out <dir>]
+agentcrucible list       [--tag <tag>] [--json | --ids | --tags]
+agentcrucible validate   [<file or directory>] [--json]
+agentcrucible run        [--scenario <id> | --tag <tag>] [--agent <id|path|provider:model> | --agents a,b,./agent.mjs] [--trials <n>] [--seed <text>]
+                         [--fuzz-call <a-b>] [--timeout <ms>] [--concurrency <n>] [--out <dir>] [--json] [--fail-on <verdict>]
+                         [--save-baseline <file>] [--baseline <file>] [--github] [model options]
+agentcrucible compare    --scenario <id> [--agents a,b,./agent.mjs] [--trials <n>] [--seed <text>] [--timeout <ms>] [--concurrency <n>]
+                         [--json] [--fail-on <verdict>] [model options]
+agentcrucible check      [--scenario <id> | --tag <tag>] [--trials <n>] [--timeout <ms>] [--concurrency <n>] [--json] [--github] [model options]
+agentcrucible sweep      --scenario <id> [--agent <id|path|provider:model>] [--kinds a,b] [--steps <n>] [--trials <n>] [--seed <text>]
+                         [--timeout <ms>] [--concurrency <n>] [--out <dir>] [--json] [--fail-on <verdict>] [--github] [model options]
+agentcrucible coverage   [--tag <tag>] [--json]
+agentcrucible inspect    <report.json> [--trial <n>] [--call <id>] [--scenario <id>]
+agentcrucible replay     <report.json> [--scenario <id>] [--json]
+agentcrucible mcp        --scenario <id> [--seed <text>] [--out <dir>] [--agent-id <name>]
+agentcrucible ui         [--port <n>] [--host <addr>] [--out <dir>] [--baseline <file>] [--agents a,b] [--fail-on <verdict>] [model options]
+agentcrucible agents | faults  [--json | --ids]
+agentcrucible worlds     [--json]
+agentcrucible schema
+agentcrucible completion bash | zsh | fish
 agentcrucible config | examples | version | help
 ```
 
-Every command except `init`, `inspect`, `examples`, `version`, and `help` also accepts `--config <path>`. Unknown options, missing values, and invalid numbers are errors, not silent defaults.
+Model options are `--record <dir>`, `--system <file>`, and `--max-steps <n>`; they apply to agents named `provider:model` ([model-agents.md](model-agents.md)). Every command except `init`, `inspect`, `completion`, `examples`, `version`, and `help` also accepts `--config <path>`. Unknown options, missing values, and invalid numbers are errors, not silent defaults.
 
 ## Commands
 
@@ -31,10 +38,15 @@ Every command except `init`, `inspect`, `examples`, `version`, and `help` also a
 | `run` | Runs one agent, or every agent of `--agents`, against the selected scenarios and writes reports. |
 | `compare` | Runs several agents on one scenario with the same seed, so the same faults fire at the same calls. |
 | `check` | Runs each scenario's `expected_verdicts` agents, 5 trials by default, and fails if a verdict differs or a declared fault never fired. Run it after editing scenarios. |
+| `sweep` | Runs the agent once without faults to learn its path, then injects every fault kind at every call of that path, one fault per run, and prints the kind-by-step table with a resilience score; see [sweeps.md](sweeps.md). |
+| `coverage` | Shows which tools, fault kinds, and agents the scenario set covers, and what nothing covers; see [sweeps.md](sweeps.md). |
 | `inspect` | Prints a saved trial call by call, or one call in full with `--call`. |
 | `replay` | Re-executes a saved report's tool calls against fresh worlds, without the agent, and confirms every call, state, and verdict. |
+| `mcp` | Serves one trial of a scenario to an MCP client over stdio and grades the answer it submits; see [mcp.md](mcp.md). |
 | `ui` | Serves the local web UI; see [ui.md](ui.md). |
-| `agents`, `worlds`, `faults` | List what scenarios can name, including extensions. `--json` prints the same as data: each agent's description and source, each world's tools with their JSON Schemas and record fields, and each fault kind's stage, description, and params schema. |
+| `agents`, `worlds`, `faults` | List what scenarios can name, including extensions. `--json` prints the same as data: each agent's description and source, each world's tools with their JSON Schemas and record fields, and each fault kind's stage, description, and params schema. `--ids` prints one name per line, for scripts and shell completion. |
+| `schema` | Prints the JSON Schema for scenario files, with the registry's worlds, fault kinds, record kinds, tools, and agents as enums; with `--config`, extension worlds and faults are included. The schema for the built-in registry ships as `schema/scenario.schema.json` and at `https://raw.githubusercontent.com/skysssup/agentcrucible/main/schema/scenario.schema.json`. |
+| `completion` | Prints a completion script for bash, zsh, or fish, generated from the command table. The scripts complete commands, options, scenario ids (`list --ids`), tags, agent ids, fault kinds, verdicts, and files. |
 | `config` | Prints the config file in use. |
 
 ## Selecting scenarios
@@ -45,7 +57,7 @@ Every command except `init`, `inspect`, `examples`, `version`, and `help` also a
 
 | Option | Default | |
 |---|---|---|
-| `--agent <id\|path>` | config `agent`, or `naive-retry` | A registered agent, or a module whose default export is your agent |
+| `--agent <id\|path\|provider:model>` | config `agent`, or `naive-retry` | A registered agent, a module whose default export is your agent, or a model: `openai:gpt-4o-mini`, `anthropic:claude-sonnet-4-5`, `ollama:llama3.2` ([model-agents.md](model-agents.md)) |
 | `--agents a,b,./x.mjs` | | Several agents. Every selected scenario runs against each; reports go to `<out>/<agent>/`, and the terminal shows a scenario-by-agent table. Not combined with `--agent`. |
 | `--trials <n>` | config `trials`, or 1 | 1 to 10000. The aggregate verdict is the worst trial's. |
 | `--seed <text>` | config `seed`, or `seed-<scenario id>` | Every fault decision is a function of the seed, the trial index, the tool, and the call number |
@@ -57,6 +69,10 @@ Every command except `init`, `inspect`, `examples`, `version`, and `help` also a
 | `--fail-on <verdict>` | config `failOn`, or `SILENT_FAILURE` | Exit 2 when a verdict is at least this severe |
 | `--save-baseline <file>` | | Write the results as a baseline |
 | `--baseline <file>` | | Compare with a baseline; exit 2 only for regressions and new failing scenarios |
+| `--github` | on under `GITHUB_ACTIONS` | Also print GitHub Actions annotations and append `summary.md` to the job summary ([ci.md](ci.md)) |
+| `--record <dir>` | config `record` | Record provider responses of model-backed agents here and replay them on later runs |
+| `--system <file>` | config `systemPrompt` | Replace the model agents' system prompt with this file's text |
+| `--max-steps <n>` | config `maxSteps`, or 12 | Tool-calling rounds a model agent may take per trial, 1 to 200 |
 
 `run` writes `<id>.report.json`, `<id>.report.html`, and `<id>.junit.xml` per scenario, where `<id>` is the percent-encoded scenario id, plus an `index.html` that links them and a `summary.md` with the same table in Markdown. With `--agents`, each agent's files go into `<out>/<agent>/`. [traces.md](traces.md) describes the files and what reads them.
 
@@ -65,8 +81,6 @@ Every command except `init`, `inspect`, `examples`, `version`, and `help` also a
 ```yaml
 - run: npx agentcrucible check
 - run: npx agentcrucible run --tag smoke --agents ./agents/my-agent.mjs,cross-checker --concurrency 4 --timeout 60000 --baseline agentcrucible-baseline.json --out reports
-- run: cat reports/summary.md >> "$GITHUB_STEP_SUMMARY"
-  if: always()
 - uses: actions/upload-artifact@v7
   if: always()
   with:
@@ -74,7 +88,7 @@ Every command except `init`, `inspect`, `examples`, `version`, and `help` also a
     path: reports/
 ```
 
-`check` holds the scenarios to their `expected_verdicts`; `run --baseline` exits 2 only for a regression or a new failing scenario; `summary.md` puts the scenario-by-agent table, the failing results with their reasons, and the baseline changes on the job's summary page; and the JUnit files in `reports/` work with any test reporter.
+`check` holds the scenarios to their `expected_verdicts`; `run --baseline` exits 2 only for a regression or a new failing scenario. Under GitHub Actions, failing results become annotations on the scenario files and `summary.md` lands on the job summary without any extra step; the JUnit files in `reports/` work with any test reporter. The repository is also a reusable action. [ci.md](ci.md) covers all of it.
 
 ## Reproducing runs
 
@@ -99,7 +113,7 @@ Fault schedules are `on_call`, `on_calls`, and `from_call` (exact calls), `on_ca
 |---|---|
 | `0` | Every verdict is below the `--fail-on` threshold, or (with `--baseline`) nothing got worse. `check` and `demo`: every expectation held. `replay`: the record reproduced. `validate`: every file is valid. |
 | `1` | Usage, config, scenario, extension, report, or agent error, including a trial that exceeds `--timeout`; the message is on stderr. `validate`: a file has an error, or there are no scenario files. |
-| `2` | `run`/`compare`: a verdict at or above `--fail-on`. `run --baseline`: a regression or a new failing scenario. `check`/`demo`: an expected verdict did not hold or a fault never fired. `replay`: a call or verdict differs from the record. |
+| `2` | `run`/`compare`/`mcp`: a verdict at or above `--fail-on`. `sweep`: a cell whose fault fired at or above `--fail-on`. `run --baseline`: a regression or a new failing scenario. `check`/`demo`: an expected verdict did not hold or a fault never fired. `replay`: a call or verdict differs from the record. |
 
 With `--json`, stdout holds only JSON.
 
@@ -118,18 +132,22 @@ Settings come from command-line flags first, then a config file, then built-in d
   "defaultTag": "smoke",
   "failOn": "DEGRADED",
   "timeoutMs": 60000,
-  "concurrency": 4
+  "concurrency": 4,
+  "record": "cassettes",
+  "systemPrompt": "prompts/operator.txt",
+  "maxSteps": 12
 }
 ```
 
 | Key | Meaning |
 |---|---|
-| `agent` | Default agent for `run`: a registered id or a module path |
+| `agent` | Default agent for `run` and `sweep`: a registered id, a module path, or `provider:model` |
 | `trials`, `seed`, `out`, `failOn` | Defaults for the flags of the same name |
 | `timeoutMs`, `concurrency` | Defaults for `--timeout` and `--concurrency`; the UI applies them to its runs too |
 | `scenarioDirs` | Directories of scenario files, loaded after the bundled ones. The UI editor saves to the first. |
 | `extensions` | Modules that export worlds, fault kinds, and agents; see [extending.md](extending.md) |
 | `defaultTag` | Tag `run` uses when neither `--scenario` nor `--tag` is given |
+| `record`, `systemPrompt`, `maxSteps` | Defaults for `--record`, `--system`, and `--max-steps` of model-backed agents |
 
 Paths are relative to the directory you run the command from. Unknown keys and invalid values are errors that name the file. Extensions and agent modules are ordinary JavaScript that runs with your permissions; load only code you trust.
 

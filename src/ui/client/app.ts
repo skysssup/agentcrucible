@@ -3,7 +3,8 @@
  * API in server.ts. Every request carries the session token the server put in the page.
  */
 import type { Baseline } from "../../baseline.js";
-import { esc } from "../../html.js";
+import type { Coverage } from "../../coverage.js";
+import { esc, sweepStepLabel } from "../../html.js";
 import type { RunReport } from "../../types.js";
 import type { RunRecord } from "../server.js";
 import { errorLine, gutterLines, highlightYaml } from "./editor.js";
@@ -13,6 +14,7 @@ import {
   agentsView,
   baselineView,
   catalogView,
+  coverageView,
   crumbs,
   demoView,
   draftResults,
@@ -39,6 +41,9 @@ import {
   selectionNote,
   shell,
   shortcutsView,
+  sweepCommand,
+  sweepCsv,
+  sweepView,
   TEMPLATES,
   uniqueResults,
   validationPanel,
@@ -51,6 +56,9 @@ import {
   type RunState,
   type ScenarioDetail,
   type ScenarioSummary,
+  type SweepFormState,
+  type SweepListItem,
+  type SweepResponse,
   type Theme,
   type Validation,
 } from "./views.js";
@@ -68,12 +76,16 @@ const state = {
   saved: [] as ReportSummary[],
   memory: [] as ReportSummary[],
   runs: undefined as RunState[] | undefined,
-  scenarioFilter: { q: "", tag: "", world: "" },
+  scenarioFilter: { q: "", tag: "", world: "", ids: [] as string[] },
   selectedScenarios: new Set<string>(),
   reportFilter: { q: "", verdict: "" },
   selectedReports: new Set<string>(),
   comparison: undefined as Comparison | undefined,
   replays: new Map<string, ReplayView>(),
+  sweepList: [] as SweepListItem[],
+  /** Sweeps opened in this tab, with their cells; the server keeps the last 20. */
+  sweeps: new Map<string, SweepResponse>(),
+  sweepForm: { scenario: "", agent: "", steps: "12", trials: "1", seed: "" } as SweepFormState,
   /** Full reports from this session; their keys never change, so they are fetched once. */
   reports: new Map<string, RunReport>(),
   detail: undefined as ScenarioDetail | undefined,
@@ -108,9 +120,10 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
   return data as T;
 }
 
-function parseHash(): { route: string; arg?: string } {
-  const [route, ...rest] = location.hash.replace(/^#\/?/, "").split("/");
-  return { route, ...(rest.length && rest.join("/") ? { arg: decodeURIComponent(rest.join("/")) } : {}) };
+function parseHash(): { route: string; arg?: string; query: URLSearchParams } {
+  const [path, query = ""] = location.hash.replace(/^#\/?/, "").split("?");
+  const [route, ...rest] = path.split("/");
+  return { route, query: new URLSearchParams(query), ...(rest.length && rest.join("/") ? { arg: decodeURIComponent(rest.join("/")) } : {}) };
 }
 
 /** The sidebar entry a detail page belongs to. */
@@ -129,14 +142,14 @@ function scroller(): HTMLElement {
 
 async function render(): Promise<void> {
   const ticket = ++renders;
-  const { route, arg } = parseHash();
+  const { route, arg, query } = parseHash();
   const nav = NAV[route] ?? route;
   setActiveNav(nav);
   closeMenu();
   const bar = setTimeout(() => document.getElementById("progress")?.classList.add("on"), 120);
   let html: string;
   try {
-    html = await viewFor(route, arg);
+    html = await viewFor(route, arg, query);
   } catch (err) {
     html = errorView((err as Error).message, err instanceof ApiError && err.code === "token");
   } finally {
@@ -167,24 +180,27 @@ function crumbsFor(route: string, arg?: string): Array<[string, string?]> {
   if (!page) return [project, ["Not found"]];
   if (!arg) return [project, [page.label]];
   const item =
-    route === "run"
-      ? (state.runs?.find((r) => r.runId === arg)?.label ?? arg)
+    route === "sweep" || route === "run"
+      ? route === "run"
+        ? (state.runs?.find((r) => r.runId === arg)?.label ?? arg)
+        : arg
       : route === "report"
         ? (findSummary(arg)?.scenarioId ?? state.reports.get(arg)?.scenarioId ?? arg)
         : arg;
   return [project, [page.label, `#/${page.route}`], [item]];
 }
 
-async function viewFor(route: string, arg?: string): Promise<string> {
+async function viewFor(route: string, arg: string | undefined, query: URLSearchParams): Promise<string> {
   const meta = state.meta;
   switch (route) {
     case "":
-      await Promise.all([ensureScenarios(), refreshReports(), loadRuns(true)]);
-      return overviewView(meta, state.scenarios ?? [], [...state.memory, ...state.saved]);
+      const [, , , coverage, baseline] = await Promise.all([ensureScenarios(), refreshReports(), loadRuns(true), api<Coverage>("/api/coverage").catch(() => undefined), api<{ baseline: Baseline | null }>("/api/baseline").catch(() => undefined)]);
+      return overviewView(meta, state.scenarios ?? [], [...state.memory, ...state.saved], { runs: state.runs ?? [], coverage, baseline: baseline?.baseline ? { entries: baseline.baseline.entries.length } : null });
     case "demo":
       await Promise.all([ensureScenarios(), state.demo.status === "idle" ? restoreDemo() : undefined]);
       return demoView(meta, state.scenarios?.find((s) => s.id === meta.demo.scenario), state.demo);
     case "scenarios":
+      state.scenarioFilter.ids = query.get("ids")?.split(",").filter(Boolean) ?? [];
       await ensureScenarios();
       return scenariosView(meta, state.scenarios ?? [], state.scenarioFilter, state.selectedScenarios, state.scenarioError);
     case "scenario": {
@@ -200,6 +216,29 @@ async function viewFor(route: string, arg?: string): Promise<string> {
       const run = state.runs?.find((r) => r.runId === arg);
       return run ? runView(run) : errorView("This run is no longer kept by the server: it restarted, or newer runs replaced it. Saved reports stay on the Reports page.");
     }
+    case "coverage":
+      return coverageView(await api<Coverage>("/api/coverage"));
+    case "sweep": {
+      const scenario = query.get("scenario");
+      if (scenario) {
+        const picked = state.scenarios?.find((s) => s.id === scenario) ?? (await ensureScenarios(), state.scenarios?.find((s) => s.id === scenario));
+        state.sweepForm = { ...state.sweepForm, scenario, agent: Object.keys(picked?.expectedVerdicts ?? {})[0] ?? state.sweepForm.agent };
+      }
+      await Promise.all([ensureScenarios(), loadSweeps()]);
+      let current: SweepResponse | undefined;
+      let error: string | undefined;
+      if (arg) {
+        try {
+          current = await loadSweep(arg);
+        } catch (err) {
+          if (err instanceof ApiError && err.code === "token") throw err;
+          error = (err as Error).message;
+        }
+      }
+      if (current && !state.sweepForm.scenario) state.sweepForm = { ...state.sweepForm, scenario: current.scenarioId, agent: current.agentId };
+      const form = { ...state.sweepForm, agent: state.sweepForm.agent || (meta.agents.find((a) => a.id === "cross-checker") ?? meta.agents[0]).id };
+      return sweepView(meta, state.scenarios ?? [], form, state.sweepList, current, error);
+    }
     case "reports":
       await refreshReports();
       return reportsView(meta, state.saved, state.memory, state.reportFilter, state.selectedReports);
@@ -207,7 +246,9 @@ async function viewFor(route: string, arg?: string): Promise<string> {
       const key = arg ?? "";
       const [report] = await Promise.all([loadReport(key), findSummary(key) ? undefined : refreshReports()]);
       const file = key.startsWith("file:") ? key.slice(5) : undefined;
+      const sweepCell = [...state.sweeps.values()].flatMap((sw) => sw.cells.map((c) => ({ sw, c }))).find(({ sw, c }) => c.key === key || sw.baselineKey === key);
       return reportView(key, findSummary(key), report, {
+        sweepCell: sweepCell ? { sweepId: sweepCell.sw.sweepId, label: sweepCell.sw.baselineKey === key ? "run without faults" : `${sweepCell.c.kind} at ${sweepStepLabel(sweepCell.sw.steps[sweepCell.c.step - 1])}` } : undefined,
         reportFile: file ? `${meta.outDir.replace(/[\\/]+$/, "")}/${file}` : undefined,
         htmlUrl: `/report-view?key=${encodeURIComponent(key)}&token=${encodeURIComponent(token)}${state.theme === "system" ? "" : `&theme=${state.theme}`}`,
         replay: state.replays.get(key),
@@ -252,6 +293,18 @@ async function refreshReports(): Promise<void> {
   state.memory = r.memory;
 }
 
+async function loadSweeps(): Promise<void> {
+  state.sweepList = await api<SweepListItem[]>("/api/sweeps");
+}
+
+async function loadSweep(id: string): Promise<SweepResponse> {
+  const cached = state.sweeps.get(id);
+  if (cached) return cached;
+  const sweep = await api<SweepResponse>(`/api/sweep?id=${encodeURIComponent(id)}`);
+  state.sweeps.set(id, sweep);
+  return sweep;
+}
+
 async function loadRuns(fresh = false): Promise<void> {
   if (state.runs && !fresh) return;
   state.runs = (await api<RunRecord[]>("/api/runs")).map(toRunState);
@@ -294,7 +347,7 @@ function setActiveNav(route: string): void {
 }
 
 function updateCounts(): void {
-  const counts: Record<string, number | undefined> = { scenarios: state.scenarios?.length, runs: state.runs?.length || undefined, reports: state.saved.length || undefined };
+  const counts: Record<string, number | undefined> = { scenarios: state.scenarios?.length, runs: state.runs?.length || undefined, reports: state.saved.length || undefined, sweep: state.sweepList.length || undefined };
   for (const el of document.querySelectorAll<HTMLElement>(".sb-count")) el.textContent = counts[el.dataset.count ?? ""]?.toString() ?? "";
 }
 
@@ -446,7 +499,26 @@ function runLabel(scenarios: number, agentRuns: number, trials: number): string 
   return `Running ${plural(scenarios, "scenario")}: ${plural(agentRuns, "agent run")} × ${plural(trials, "trial")}`;
 }
 
+async function runSweepFromForm(form: HTMLFormElement): Promise<void> {
+  const data = new FormData(form);
+  const scenarioId = String(data.get("scenario") ?? "").trim();
+  const agentId = String(data.get("agent") ?? "");
+  const kinds = data.getAll("kind").map(String);
+  const steps = Number(data.get("steps") || 12);
+  const trials = Number(data.get("trials") || 1);
+  const seed = String(data.get("seed") ?? "").trim();
+  state.sweepForm = { scenario: scenarioId, agent: agentId, kinds, steps: String(steps), trials: String(trials), seed };
+  if (!state.scenarios?.some((s) => s.id === scenarioId)) return void toast("Choose a scenario from the list.", "bad");
+  if (kinds.length === 0) return void toast("Choose at least one fault kind.", "bad");
+  const done = progress(`Sweeping ${scenarioId}: ${plural(kinds.length, "fault kind")} × up to ${plural(steps, "step")}`);
+  const sweep = await busy(form, "Running…", () => api<SweepResponse>("/api/sweep", { scenarioId, agentId, kinds, steps, trials, ...(seed ? { seed } : {}) })).finally(done);
+  if (!sweep) return;
+  state.sweeps.set(sweep.sweepId, sweep);
+  location.hash = href("sweep", sweep.sweepId);
+}
+
 async function runFromForm(form: HTMLFormElement): Promise<void> {
+  if (form.dataset.action === "run-sweep") return runSweepFromForm(form);
   const data = new FormData(form);
   const agents = data.getAll("agent").map(String);
   const trials = Number(data.get("trials") || 1);
@@ -514,7 +586,7 @@ async function runDemo(): Promise<void> {
 
 /** Scrolls to the run form on pages that have one, and goes to the scenario list from the others. */
 function newRun(): void {
-  const form = view().querySelector<HTMLFormElement>("form.run-card");
+  const form = view().querySelector<HTMLFormElement>("form.run-card, form.sw-form");
   if (!form || form.dataset.action === "run-draft") {
     location.hash = "#/scenarios";
     return;
@@ -524,6 +596,13 @@ function newRun(): void {
   void form.offsetWidth;
   form.classList.add("flash");
   form.querySelector<HTMLButtonElement>("button[type=submit]")?.focus({ preventScroll: true });
+}
+
+/** Keeps the sweep form's "n of m selected" in step with the fault kind boxes. */
+function updateKindCount(): void {
+  const boxes = [...document.querySelectorAll<HTMLInputElement>('.sw-form input[name="kind"]:not(:disabled)')];
+  const label = document.getElementById("sw-kind-count");
+  if (label) label.textContent = `${boxes.filter((b) => b.checked).length} of ${boxes.length} selected`;
 }
 
 /** Keeps the run form's note and button in step with the scenario selection. */
@@ -579,6 +658,29 @@ async function act(action: string, el: HTMLElement): Promise<void> {
       const form = el.closest("form");
       for (const box of form?.querySelectorAll<HTMLInputElement>('input[name="agent"]') ?? []) box.checked = el.dataset.pick === "all";
       if (form?.dataset.action === "run-draft") state.draftAgentsTouched = true;
+      return;
+    }
+    case "clear-ids":
+      location.hash = "#/scenarios";
+      return;
+    case "kinds": {
+      const form = el.closest("form");
+      for (const box of form?.querySelectorAll<HTMLInputElement>('input[name="kind"]:not(:disabled)') ?? []) box.checked = el.dataset.pick === "all";
+      return updateKindCount();
+    }
+    case "copy-sweep-markdown": {
+      const sweep = state.sweeps.get(el.dataset.sweep ?? "");
+      if (!sweep) return;
+      const md = await busy(undefined, "", () => api<{ markdown: string }>(`/api/sweep/markdown?id=${encodeURIComponent(sweep.sweepId)}`));
+      return md ? copy(md.markdown, el) : undefined;
+    }
+    case "copy-sweep-command": {
+      const sweep = state.sweeps.get(el.dataset.sweep ?? "");
+      return sweep ? copy(sweepCommand(sweep), el) : undefined;
+    }
+    case "download-sweep-csv": {
+      const sweep = state.sweeps.get(el.dataset.sweep ?? "");
+      if (sweep) download(`agentcrucible-${sweep.sweepId}.csv`, sweepCsv(sweep), "text/csv");
       return;
     }
     case "matrix-filter":
@@ -834,6 +936,7 @@ function showPalette(): void {
       ...ROUTES.map((r) => ({ group: "Pages", label: r.label, hint: `G ${r.key.toUpperCase()}`, icon: r.icon, run: go(`#/${r.route}`) })),
       { group: "Actions", label: "Run the guided demo", icon: "play", keywords: "demo timeout refund", run: () => void runDemo() },
       { group: "Actions", label: "New run", hint: "N", icon: "runs", keywords: "start scenarios agents", run: newRun },
+      ...(parseHash().route === "scenario" && parseHash().arg ? [{ group: "Actions", label: `Sweep ${parseHash().arg}`, hint: "fault kinds × steps", icon: "grid" as const, keywords: "fault injection every step heat map", run: go(`#/sweep?scenario=${encodeURIComponent(parseHash().arg!).replace(/%2F/g, "/")}`) }] : []),
       ...(latest ? [{ group: "Actions", label: `Re-run ${latest.label}`, hint: latest.detail, icon: "repeat" as const, keywords: "again repeat last run", run: () => void rerun(latest) }] : []),
       { group: "Actions", label: "New single-step scenario", icon: "plus", keywords: "template editor", run: () => void useTemplate("single") },
       { group: "Actions", label: "New workflow scenario", icon: "workflow", keywords: "template editor", run: () => void useTemplate("workflow") },
@@ -931,6 +1034,8 @@ app.addEventListener("change", (e) => {
       actions.innerHTML = reportActions(state.selectedReports.size);
       actions.classList.toggle("show", state.selectedReports.size > 0);
     }
+  } else if (el.name === "kind") {
+    updateKindCount();
   } else if (el.id === "filter-faults") {
     document.getElementById("report-root")?.classList.toggle("filter-faults", el.checked);
   } else if (el.name === "agent" && el.closest('form[data-action="run-draft"]')) {

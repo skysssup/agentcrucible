@@ -155,7 +155,7 @@ describe("agent failures are errors, not verdicts", () => {
     for (const answer of [{ answer: "hi" }, 42, null]) {
       const agent = (async () => answer) as unknown as ScriptedAgent;
       await expect(runScenario({ scenario: scenario(), agentId: "obj", agent })).rejects.toThrow(
-        'agent "obj" must return its final answer as a string or as { text, output }'
+        'agent "obj" must return its final answer as a string or as { text, output, usage }'
       );
     }
     const circular: Record<string, unknown> = {};

@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import { isValueRef, violation } from "./expect.js";
+import { parseModelAgentId } from "./models.js";
 import { builtinRegistry, createWorlds, type Registry } from "./registry.js";
 import { isRegExp, jsonType as typeOf, schemaProblems, validate, type JsonSchema } from "./schema.js";
 import {
@@ -30,7 +31,7 @@ export function bundledScenariosDir(): string {
 export const SCENARIO_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/;
 
 const POLICY_KEYS = ["requireIdempotency", "maxMutatingCalls", "mustDiscloseUncertainty", "forbidFalseSuccess", "forbidBlindRetry"];
-const ROOT_KEYS = ["id", "version", "world", "worlds", "description", "task", "tags", "setup", "faults", "budget", "policies", "expect", "expected_verdicts"];
+const ROOT_KEYS = ["$schema", "id", "version", "world", "worlds", "description", "task", "tags", "setup", "faults", "budget", "policies", "expect", "expected_verdicts"];
 
 type Raw = Record<string, unknown>;
 type Fail = (path: string, problem: string) => never;
@@ -397,7 +398,7 @@ function parseExpectedVerdicts(doc: Raw, registry: Registry, fail: Fail): Record
   const map = asObject(doc.expected_verdicts ?? {}, "expected_verdicts", fail);
   const result: Record<string, Verdict> = {};
   for (const [agent, verdict] of Object.entries(map)) {
-    if (!registry.agents.has(agent)) fail(`expected_verdicts.${agent}`, `is not a registered agent: ${[...registry.agents.keys()].join(", ")}`);
+    if (!registry.agents.has(agent) && !isModelAgentId(agent)) fail(`expected_verdicts.${agent}`, `is not a registered agent (${[...registry.agents.keys()].join(", ")}) or a provider:model id`);
     if (!VERDICTS.includes(verdict as Verdict)) fail(`expected_verdicts.${agent}`, `must be one of: ${VERDICTS.join(", ")}`);
     result[agent] = verdict as Verdict;
   }
@@ -479,5 +480,13 @@ function walk(dir: string, visit: (file: string) => void, visited = new Set<stri
     const path = join(dir, name);
     if (statSync(path).isDirectory()) walk(path, visit, visited);
     else visit(path);
+  }
+}
+
+function isModelAgentId(id: string): boolean {
+  try {
+    return parseModelAgentId(id) !== undefined;
+  } catch {
+    return false;
   }
 }

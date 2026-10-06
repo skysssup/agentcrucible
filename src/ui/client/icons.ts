@@ -57,5 +57,5 @@ const PATHS = {
 export type IconName = keyof typeof PATHS;
 
 export function icon(name: IconName, size = 16, extra = ""): string {
-  return `<svg class="i${extra ? ` ${extra}` : ""}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${PATHS[name]}</svg>`;
+  return `<svg class="i${extra ? ` ${extra}` : ""}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${PATHS[name]}</svg>`;
 }
