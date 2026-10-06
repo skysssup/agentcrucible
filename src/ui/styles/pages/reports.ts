@@ -10,7 +10,8 @@ const REPORTS_LIST_CSS = `
   .rl-count b { color:var(--fg); }
   .rl-src { display:inline-flex; align-items:center; gap:5px; color:var(--muted); font-size:11.5px; white-space:nowrap; }
   .rl-src .i { color:var(--faint); }
-  .rl-reason { display:block; max-width:420px; color:var(--muted); font-size:11.5px; line-height:1.45; }
+  .rl-reason { display:-webkit-box; max-width:440px; overflow:hidden; color:var(--muted); font-size:11.5px; line-height:1.45; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
+  .dt .link-mono { white-space:nowrap; }
   .rl-selbar { display:flex; align-items:center; gap:10px; min-height:40px; margin-bottom:10px; padding:6px 12px; border:1px solid var(--border-2); border-radius:var(--r-md); background:var(--surface-2); font-size:12.5px; }
   .rl-selbar[hidden] { display:none; }
   .rl-selbar b { font-weight:600; }
