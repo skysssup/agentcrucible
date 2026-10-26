@@ -47,6 +47,7 @@ export const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
   {
     label: "Workspace",
     items: [
+      { route: "lab", label: "Failure lab", icon: "zap", key: "f" },
       { route: "", label: "Command center", icon: "dashboard", key: "o" },
       { route: "analytics", label: "Analytics", icon: "barChart", key: "y" },
       { route: "activity", label: "Activity", icon: "activity", key: "l" },
@@ -89,6 +90,9 @@ export const TABBAR: NavItem[] = [ALL_NAV[0], ALL_NAV.find((n) => n.route === "s
 export function parseHash(hash: string): Ctx {
   const [path, query = ""] = hash.replace(/^#\/?/, "").split("?");
   const [route, ...rest] = path.split("/");
-  const arg = rest.length && rest.join("/") ? decodeURIComponent(rest.join("/")) : undefined;
+  const encoded = rest.join("/");
+  let arg: string | undefined = encoded || undefined;
+  // A pasted, partially encoded URL must still render a recoverable page.
+  try { if (arg) arg = decodeURIComponent(arg); } catch { /* retain the literal id */ }
   return { route, query: new URLSearchParams(query), ...(arg !== undefined ? { arg } : {}) };
 }

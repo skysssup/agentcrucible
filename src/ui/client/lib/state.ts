@@ -100,8 +100,12 @@ export const store = {
   prefs: { ...DEFAULT_PREFS, ...read<Partial<Prefs>>(PREFS_KEY, {}) } as Prefs,
   recent: read<RecentItem[]>(RECENT_KEY, []),
   searches: read<string[]>(SEARCHES_KEY, []),
-  draft: typeof localStorage === "undefined" ? null : localStorage.getItem(DRAFT_KEY),
+  draft: readDraft(),
 };
+
+function readDraft(): string | null {
+  try { return localStorage.getItem(DRAFT_KEY); } catch { return null; }
+}
 
 export function savePrefs(update: Partial<Prefs>): void {
   store.prefs = { ...store.prefs, ...update };
