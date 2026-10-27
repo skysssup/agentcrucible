@@ -339,6 +339,7 @@ async function start(): Promise<void> {
     return;
   }
   await Promise.all([load.profile(), load.notifications()]).catch(() => undefined);
+  if (!location.hash && !store.prefs.landing && store.meta.demoWorkspace) history.replaceState(null, "", "#/lab");
   app.innerHTML = shell();
   installTooltips(app);
   updateShell();

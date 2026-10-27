@@ -18,6 +18,7 @@ import coverage from "./coverage.js";
 import demo from "./demo.js";
 import editor from "./editor.js";
 import launch from "./launch.js";
+import lab from "./lab.js";
 import overview from "./overview.js";
 import report from "./report.js";
 import reports from "./reports.js";
@@ -30,6 +31,7 @@ import sweep from "./sweep.js";
 
 export const PAGES: Record<string, Page> = {
   "": overview,
+  lab,
   analytics,
   activity,
   scenarios,
