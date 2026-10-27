@@ -48,7 +48,7 @@
     "@types/node": "^26.6.4",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
-    "tsup": "^8.3.5",
+    "tsup": "^8.5.1",
     "tsx": "^4.19.2",
     "typescript": "^7.0.2",
     "vite": "^8.3.2",
@@ -73,5 +73,8 @@
   "homepage": "https://github.com/skysssup/agentcrucible",
   "bugs": {
     "url": "https://github.com/skysssup/agentcrucible/issues"
+  },
+  "overrides": {
+    "esbuild": "^0.28.2"
   }
 }
