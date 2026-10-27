@@ -17,7 +17,7 @@ let failures = 0;
 let checked = 0;
 
 for (const doc of DOCS) {
-  const blocks = [...readFileSync(join(root, doc), "utf8").matchAll(/```(\w+)\n([\s\S]*?)```/g)].map((m) => ({ lang: m[1], body: m[2] }));
+  const blocks = [...readFileSync(join(root, doc), "utf8").replace(/\r\n/g, "\n").matchAll(/```(\w+)\n([\s\S]*?)```/g)].map((m) => ({ lang: m[1], body: m[2] }));
   blocks.forEach((block, i) => {
     // The scenario-authoring block needs files the reader creates; it is checked separately below.
     if (block.lang !== "bash" || block.body.includes("my-scenarios")) return;
@@ -56,7 +56,7 @@ for (const doc of DOCS) {
     const shown = blocks[i + 1];
     if (commands === 0 || shown?.lang !== "text") return;
     for (const expected of shown.body.split("\n").filter((l) => l.trim())) {
-      if (!output.includes(expected)) {
+      if (!output.replaceAll('\\', '/').includes(expected)) {
         console.log(`FAIL ${doc}: output of block ${i} lacks:\n     ${expected}`);
         failures++;
       }
@@ -72,7 +72,7 @@ function isCommand(line) {
   return (/^(npx )?agentcrucible /.test(line) || line.startsWith("node dist/cli.js ")) && !/^((npx )?agentcrucible|node dist\/cli\.js) (ui|mcp)\b/.test(line) && !/\b(openai|anthropic|ollama):/.test(line);
 }
 
-const readmeYaml = readFileSync(join(root, "README.md"), "utf8").match(/```yaml\n([\s\S]*?)```/)[1];
+const readmeYaml = readFileSync(join(root, "README.md"), "utf8").replace(/\r\n/g, "\n").match(/```yaml\n([\s\S]*?)```/)[1];
 const cwd = mkdtempSync(join(tmpdir(), "agentcrucible-docs-"));
 mkdirSync(join(cwd, "my-scenarios"));
 writeFileSync(join(cwd, "my-scenarios", "order-confirmation.yaml"), readmeYaml);

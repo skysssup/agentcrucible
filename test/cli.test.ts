@@ -301,7 +301,7 @@ describe("usage and input errors", () => {
     mkdirSync(join(cwd, "mine"));
     writeFileSync(join(cwd, "mine", "bad.yaml"), "id: custom/bad\nworld: payments\ndescription: d\ntask: t\nfaults: [{ target: create_refnd, kind: timeout }]\n");
     writeFileSync(join(cwd, ".agentcrucible.json"), JSON.stringify({ scenarioDirs: ["mine"] }));
-    expectUsageError(runCli(["list"], { cwd }), /mine\/bad\.yaml: faults\[0\]\.target must be "\*" or a payments tool/);
+    expectUsageError(runCli(["list"], { cwd }), /mine[/\\]bad\.yaml: faults\[0\]\.target must be "\*" or a payments tool/);
   });
 
   it("refuses to run when several config files exist", () => {
@@ -316,7 +316,7 @@ describe("usage and input errors", () => {
     const cwd = tempDir();
     writeFileSync(join(cwd, "file"), "not a directory");
     expectUsageError(runCli(["run", "--scenario", "payments/rate-limit", "--out", "file/reports"], { cwd }), /cannot write reports to "file\/reports"/);
-    if (process.getuid?.() !== 0) {
+    if (process.platform !== "win32" && process.getuid?.() !== 0) {
       mkdirSync(join(cwd, "locked"));
       chmodSync(join(cwd, "locked"), 0o500);
       expectUsageError(runCli(["run", "--scenario", "payments/rate-limit", "--out", "locked"], { cwd }), /cannot write reports to "locked"/);
@@ -524,5 +524,5 @@ describe("examples", () => {
       const command = line.split(" ")[1];
       expect(runCli([command, "--no-such-option"], { cwd }).stderr, line).toContain(`${command} does not accept --no-such-option`);
     }
-  });
+  }, 120_000);
 });

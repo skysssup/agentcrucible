@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { builtinRegistry } from "../src/registry.js";
+import { esc, shellQuote } from "../src/html.js";
 import { bundledScenariosDir } from "../src/scenarios.js";
 import { hostAllowed, startUi, type UiServer } from "../src/ui/server.js";
 
@@ -236,7 +237,7 @@ describe("UI API", () => {
     expect(reports.json.memory.length).toBe(7);
 
     const fromFile = await fetch(`${url}/report-view?key=${encodeURIComponent(file.key)}&token=${ui.token}`);
-    expect(await fromFile.text()).toContain(`agentcrucible replay ${join(dir, "out", "naive-retry/payments%2Ftimeout-after-commit.report.json")}`);
+    expect(await fromFile.text()).toContain(esc(`agentcrucible replay ${shellQuote(join(dir, "out", "naive-retry/payments%2Ftimeout-after-commit.report.json"))}`));
     const replay = await api("/api/replay", { key: file.key });
     expect(replay.json).toMatchObject({ reproduced: true, trials: [{ reproduced: true }, { reproduced: true }] });
     expect((await api(`/api/report?key=${encodeURIComponent(file.key)}`)).json.aggregateVerdict).toBe("HARMFUL_ACTION");
@@ -373,7 +374,8 @@ describe("agentcrucible ui", () => {
       expect(meta.outDir).toBe("reports");
       const exit = new Promise<number | null>((resolve) => child.on("exit", (code) => resolve(code)));
       child.kill("SIGINT");
-      expect(await exit).toBe(0);
+      // Windows force-terminates child.kill(SIGINT); Unix delivers the handler.
+      expect(await exit).toBe(process.platform === "win32" ? null : 0);
     } finally {
       child.kill();
       rmSync(cwd, { recursive: true, force: true });

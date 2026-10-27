@@ -85,7 +85,7 @@ describe("bundled scenario matrix", () => {
 
   it("loads the scenario example from the README", () => {
     const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
-    const yaml = readme.match(/```yaml\n([\s\S]*?)\n```/)?.[1];
+    const yaml = readme.match(/```yaml\r?\n([\s\S]*?)\r?\n```/)?.[1];
     expect(yaml).toBeDefined();
     const scenario = parseScenario(parseYaml(yaml!), "README.md");
     expect(scenario.expect?.outcomes[0].effects.length).toBeGreaterThan(0);

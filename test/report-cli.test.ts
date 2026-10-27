@@ -1,6 +1,6 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { renderReportHtml } from "../src/html.js";
 import { formatReport, writeHtmlReport, writeJsonReport, writeJUnitReport, writeRunIndex } from "../src/report.js";
@@ -58,7 +58,7 @@ describe("report files", () => {
     const paths = ids.map((scenarioId) => write({ ...base, scenarioId }, dir));
     expect(new Set(paths).size).toBe(ids.length);
     for (const path of paths) {
-      expect(resolve(path).startsWith(resolve(dir) + "/")).toBe(true);
+      expect(resolve(path).startsWith(resolve(dir) + sep)).toBe(true);
       expect(readFileSync(path, "utf8").length).toBeGreaterThan(0);
     }
     expect(readdirSync(dir)).toHaveLength(ids.length);

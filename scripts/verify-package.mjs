@@ -9,6 +9,8 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+const npmCli = process.env.npm_execpath;
+if (!npmCli) throw new Error("Run this verifier with npm run test:package so npm_execpath is available.");
 const args = process.argv.slice(2);
 const work = mkdtempSync(join(tmpdir(), "agentcrucible-package-"));
 let failures = 0;
@@ -19,6 +21,7 @@ function check(label, ok, detail = "") {
 }
 
 function run(cmd, cmdArgs, cwd) {
+  if (cmd === "npm") return run(process.execPath, [npmCli, ...cmdArgs], cwd);
   const r = spawnSync(cmd, cmdArgs, { cwd, encoding: "utf8", env: { ...process.env, NO_COLOR: "1", GITHUB_ACTIONS: undefined, GITHUB_STEP_SUMMARY: undefined }, maxBuffer: 64 * 1024 * 1024 });
   return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
@@ -26,12 +29,12 @@ function run(cmd, cmdArgs, cwd) {
 try {
   let tarball = args.includes("--tarball") ? resolve(args[args.indexOf("--tarball") + 1]) : undefined;
   if (!tarball) {
-    execFileSync("npm", ["pack", "--pack-destination", work], { cwd: root, stdio: ["ignore", "ignore", "inherit"] });
+    execFileSync(process.execPath, [npmCli, "pack", "--pack-destination", work], { cwd: root, stdio: ["ignore", "ignore", "inherit"] });
     tarball = join(work, `${pkg.name}-${pkg.version}.tgz`);
   }
   check(`tarball ${tarball}`, existsSync(tarball));
 
-  const listing = execFileSync("tar", ["-tzf", tarball], { encoding: "utf8" }).trim().split("\n").map((f) => f.replace(/^package\//, ""));
+  const listing = execFileSync("tar", ["-tzf", tarball], { encoding: "utf8" }).trim().split(/\r?\n/).map((f) => f.replace(/^package\//, ""));
   const unexpected = listing.filter((f) => !/^(dist\/.+\.(js|d\.ts)|scenarios\/.+\.yaml|schema\/scenario\.schema\.json|README\.md|LICENSE|CHANGELOG\.md|package\.json)$/.test(f));
   check("tarball holds only dist, scenarios, schema, README, LICENSE, CHANGELOG, package.json", unexpected.length === 0, unexpected.join(", "));
   for (const required of ["dist/cli.js", "dist/index.js", "dist/index.d.ts", "dist/ui/app.js", "schema/scenario.schema.json", "README.md", "LICENSE", "CHANGELOG.md"]) {
@@ -43,7 +46,7 @@ try {
 
   const consumer = join(work, "consumer");
   mkdirSync(consumer);
-  execFileSync("npm", ["init", "-y"], { cwd: consumer, stdio: "ignore" });
+  execFileSync(process.execPath, [npmCli, "init", "-y"], { cwd: consumer, stdio: "ignore" });
   const consumerPkg = JSON.parse(readFileSync(join(consumer, "package.json"), "utf8"));
   writeFileSync(join(consumer, "package.json"), JSON.stringify({ ...consumerPkg, type: "module" }, null, 2));
   const install = run("npm", ["install", "--no-audit", "--no-fund", tarball], consumer);
@@ -53,8 +56,9 @@ try {
   const deps = Object.keys(JSON.parse(readFileSync(join(consumer, "package-lock.json"), "utf8")).packages).filter((p) => p.startsWith("node_modules/"));
   check(`installs only runtime dependencies (${deps.join(", ")})`, deps.every((d) => ["node_modules/agentcrucible", "node_modules/yaml"].includes(d)));
 
-  const bin = join(consumer, "node_modules", ".bin", "agentcrucible");
-  const cli = (...cliArgs) => run(bin, cliArgs, consumer);
+  const bin = join(consumer, "node_modules", "agentcrucible", "dist", "cli.js");
+  check("npm creates the CLI shim", existsSync(join(consumer, "node_modules", ".bin", process.platform === "win32" ? "agentcrucible.cmd" : "agentcrucible")));
+  const cli = (...cliArgs) => run(process.execPath, [bin, ...cliArgs], consumer);
   const version = cli("--version");
   check("agentcrucible --version", version.status === 0 && version.stdout.trim() === `agentcrucible ${pkg.version}`, version.stdout + version.stderr);
   const list = cli("list");
@@ -128,7 +132,7 @@ try {
   );
 
   cpSync(join(root, "examples", "inventory"), join(consumer, "inventory"), { recursive: true });
-  const inventory = (...cliArgs) => run(bin, cliArgs, join(consumer, "inventory"));
+  const inventory = (...cliArgs) => run(process.execPath, [bin, ...cliArgs], join(consumer, "inventory"));
   const extCheck = inventory("check", "--scenario", "inventory/lost-reservation");
   check("examples/inventory loads as an extension and its scenario passes check", extCheck.status === 0 && extCheck.stdout.includes("2/2 checks pass"), extCheck.stdout.slice(-300) + extCheck.stderr);
   const extFaults = inventory("faults");
@@ -153,7 +157,7 @@ try {
 
   const starter = join(consumer, "starter");
   mkdirSync(starter);
-  const inStarter = (...cliArgs) => run(bin, cliArgs, starter);
+  const inStarter = (...cliArgs) => run(process.execPath, [bin, ...cliArgs], starter);
   const init = inStarter("init");
   check("init writes a starter project", init.status === 0 && init.stdout.includes("created  agentcrucible.config.json"), init.stderr || init.stdout);
   const validate = inStarter("validate");
@@ -167,7 +171,7 @@ try {
   }
   check("run grades the starter agent on the starter scenario", starterRun.status === 0 && starterReport?.agentId === "my-agent" && starterReport?.aggregateVerdict === "SAFE_SUCCESS", starterRun.stderr || starterRun.stdout.slice(-300));
 
-  const ui = spawn(bin, ["ui", "--port", "0"], { cwd: starter, env: { ...process.env, NO_COLOR: "1" } });
+  const ui = spawn(process.execPath, [bin, "ui", "--port", "0"], { cwd: starter, env: { ...process.env, NO_COLOR: "1" } });
   try {
     const address = await new Promise((resolveAddress, reject) => {
       let out = "";
@@ -193,7 +197,7 @@ try {
     check("the ui API refuses requests without the session token", denied.status === 403);
     const exited = new Promise((resolveExit) => ui.on("exit", (code) => resolveExit(code)));
     ui.kill("SIGINT");
-    check("ui stops on SIGINT with exit 0", (await exited) === 0);
+    check("ui stops on SIGINT", (await exited) === (process.platform === "win32" ? null : 0));
   } catch (err) {
     check("ui starts from the installed package", false, err.message);
   } finally {

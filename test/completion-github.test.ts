@@ -75,7 +75,7 @@ describe("completion scripts", () => {
     expect(runCli(["list", "--tags"]).stdout.trim().split("\n")).toContain("smoke");
     expect(runCli(["agents", "--ids"]).stdout.trim().split("\n")).toContain("cross-checker");
     expect(runCli(["faults", "--ids"]).stdout.trim().split("\n")).toContain("phantom_success");
-  });
+  }, 120_000);
 });
 
 describe("GitHub Actions output", () => {
