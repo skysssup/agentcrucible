@@ -7,12 +7,11 @@
 
 **Fault-injection testing for tool-using AI agents.** AgentCrucible runs an agent against offline mock services (payments, email, a database, support tickets, a filesystem), breaks tool calls on a seeded schedule, and grades what the agent did and said against what the services actually committed. A local console keeps the history, so you can watch reliability change release by release and open any result as a call-by-call timeline.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/ui-overview-dark.png">
-  <img alt="The AgentCrucible command center: the safe share, critical and unexpected results over the last 30 days, verdicts per day with each agent release marked, what needs attention, and the agent leaderboard" src="docs/images/ui-overview.png">
-</picture>
+<img alt="The live failure lab: five scripted refund strategies, their tool calls, committed changes, and evidence-backed verdicts after a timeout" src="docs/images/failure-lab.png">
 
-It finds the failure handling that ordinary tests and evals miss:
+Start with the **Failure lab**. Run the refund experiment, inspect the duplicate side effect, compare the recovery strategies, and download the evidence. [A two-minute demonstration](docs/presenting.md) explains what the result establishes.
+
+Examples of the failures it checks:
 
 - a retry after a lost response that refunds the customer twice;
 - a workflow that resolves the ticket although the customer was never emailed;

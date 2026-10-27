@@ -5,10 +5,10 @@ import { runHarness } from "./harness.js";
 import type { Scenario } from "./types.js";
 import { createPaymentsWorld } from "./worlds/payments.js";
 
-export async function runRefundExperiment(scenario: Scenario, seed = "demo") {
+export async function runRefundExperiment(scenario: Scenario, seed = "demo", agentIds = Object.keys(scenario.expectedVerdicts)) {
   if (scenario.worlds.length !== 1 || scenario.worlds[0] !== "payments") throw new Error("This browser experiment supports the payments world only.");
   const results = [];
-  for (const agentId of Object.keys(scenario.expectedVerdicts)) {
+  for (const agentId of agentIds) {
     const agent = BUILTIN_AGENTS[agentId];
     if (!agent) throw new Error(`Unknown scripted agent: ${agentId}`);
     const world = createPaymentsWorld();

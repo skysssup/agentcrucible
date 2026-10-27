@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- The demo workspace opens in a focused failure lab: execute five refund recovery strategies, compare observed responses with committed changes, open the full traces, and download evidence as Markdown.
+- A browser-safe refund experiment uses the actual payment world, scripted agents, harness, and grader. A parity test checks its traces, effects, and verdicts against `runScenario`. `npm run build:demo` produces a small browser bundle and normalized scenario without local paths.
+- Console startup survives blocked browser storage and malformed URL escapes. Chromium tests cover execution, downloads, deep-link recovery, and phone layout.
+- Package verification and documentation checks now work on Windows; CI exercises Windows in addition to Linux and runs the failure lab in Chromium.
+
 ## 2.1.0
 
 2.1 turns `agentcrucible ui` into a console with memory. Every run and sweep goes into a history file, so the console can chart reliability over weeks, compare any two runs, say what needs attention, and reopen any old result by regenerating it from its seed. Every page is rebuilt on one design, and `ui --demo` opens a workspace with eight weeks of history to explore before you have your own. Scenario files, reports, baselines, and the library API are unchanged; the CLI gains three `ui` flags.

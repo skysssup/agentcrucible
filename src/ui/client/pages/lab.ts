@@ -21,7 +21,7 @@ export function evidenceMarkdown(items: RunReport[]): string {
   return ["# AgentCrucible: lost refund response", "", "Scripted agents and offline mock services. These results are not production reliability measurements.", "",
     ...items.flatMap((r) => {
       const t = r.trials.find((t) => t.verdict === r.aggregateVerdict) ?? r.trials[0];
-      return [`## ${r.agentId}`, `Scenario: ${r.scenarioId}`, `Seed: ${r.seed}`, `Verdict: ${r.aggregateVerdict}`, `Engine: ${r.toolVersion}`, "", "### Calls", ...t.trace.calls.map((c) => `- ${c.id}: ${c.tool} — ${c.observed.ok ? "success observed" : "error observed"}; ${c.committed ? "executed" : "not executed"}${c.faultApplied ? `; fault=${c.faultApplied}` : ""}`), "", "### Final answer", t.trace.finalAnswer, "", "### Findings", ...t.findings.map((f) => `- ${f.rule}: ${f.reason}`), ""];
+      return [`## ${r.agentId}`, `Scenario: ${r.scenarioId}`, `Seed: ${r.seed}`, `Verdict: ${r.aggregateVerdict}`, `Engine: ${r.toolVersion}`, "", "### Calls", ...t.trace.calls.map((c) => `- ${c.id}: ${c.tool} — ${c.observed.ok ? "success observed" : "error observed"}; ${c.committed ? "executed" : "not executed"}${c.faultApplied ? `; fault=${c.faultApplied}` : ""}`), "", "### Committed effects", ...t.effects.map((e) => `- ${e.summary}`), "", "### Final answer", t.trace.finalAnswer, "", "### Findings", ...t.findings.map((f) => `- ${f.rule}: ${f.reason}`), ""];
     })].join("\n");
 }
 
@@ -29,7 +29,7 @@ export function evidenceCard(report: RunReport, key?: string): string {
   const trial = report.trials.find((t) => t.verdict === report.aggregateVerdict) ?? report.trials[0];
   return `<article class="lab-result"><header><h2>${esc(report.agentId)}</h2>${badge(report.aggregateVerdict)}</header>
     <ol class="lab-calls" aria-label="Tool calls">${trial.trace.calls.map((c) => `<li><span class="lab-call-index">${c.seq}</span><div><code>${esc(c.tool)}</code><p>${c.committed ? "Service executed the call" : "Service did not execute the call"} · ${c.observed.ok ? "agent received success" : "agent received an error"}</p>${c.faultApplied ? `<span class="lab-fault">${esc(c.faultApplied)}</span>` : ""}</div></li>`).join("")}</ol>
-    <div class="lab-answer"><span class="eyebrow">The agent said</span><blockquote>${esc(trial.trace.finalAnswer)}</blockquote></div>
+    <div class="lab-answer"><span class="eyebrow">What changed</span><ul class="lab-effects">${trial.effects.map((e) => `<li>${esc(e.summary)}</li>`).join("") || "<li>No changes committed.</li>"}</ul><span class="eyebrow">The agent said</span><blockquote>${esc(trial.trace.finalAnswer)}</blockquote></div>
     <p class="lab-reason">${esc(trial.reason)}</p>
     ${key ? button("Inspect the full trace", { href: href("report", key), icon: "arrowRight", kind: "ghost" }) : ""}</article>`;
 }
